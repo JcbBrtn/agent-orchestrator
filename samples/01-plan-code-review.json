@@ -1,0 +1,49 @@
+{
+  "id": "builtin-plan-code-review",
+  "name": "1 · Plan → Code ⇄ Review",
+  "description": "A software-company pipeline: a Planner writes the spec, a Coder implements it, and a Reviewer sends it back until it says APPROVED. Shows Template vs Handoff arrows, keyword conditions with Negate, and bounded loops.",
+  "references": [
+    { "title": "MetaGPT: Meta Programming for A Multi-Agent Collaborative Framework", "authors": "Hong et al., 2023", "url": "https://arxiv.org/abs/2308.00352" },
+    { "title": "ChatDev: Communicative Agents for Software Development", "authors": "Qian et al., 2023", "url": "https://arxiv.org/abs/2307.07924" }
+  ],
+  "maxTotalSteps": 20,
+  "agents": [
+    {
+      "id": "planner", "name": "Planner",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a product manager / architect (MetaGPT-style role). Turn the user's task into a short, concrete implementation plan: files to touch, steps, and acceptance criteria. Inspect the working directory first. Ask the user if the task is ambiguous. Do not write code.",
+      "enabledTools": ["read_file", "list_directory", "search_files", "ask_user"],
+      "skillIds": ["asking-the-user"],
+      "maxToolIterations": 15, "x": 40, "y": 200
+    },
+    {
+      "id": "coder", "name": "Coder",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a careful software engineer. Implement the plan using your tools. Keep changes minimal. When done, summarize exactly what you changed, file by file.",
+      "enabledTools": ["read_file", "create_file", "edit_file", "list_directory", "search_files", "run_powershell"],
+      "maxToolIterations": 30, "x": 400, "y": 60
+    },
+    {
+      "id": "reviewer", "name": "Reviewer",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a strict code reviewer. Read the changed files and check them against the task and plan. If everything is correct, reply with the single word APPROVED on the first line. Otherwise list the concrete problems to fix, most important first.",
+      "enabledTools": ["read_file", "list_directory", "search_files"],
+      "maxToolIterations": 15, "x": 760, "y": 320
+    }
+  ],
+  "arrows": [
+    {
+      "id": "plan-to-code", "sourceAgentId": "planner", "targetAgentId": "coder", "name": "plan", "mode": "Template",
+      "prompt": "Task: {{task}}\n\nImplement this plan:\n{{output}}", "maxTraversals": 1
+    },
+    {
+      "id": "code-to-review", "sourceAgentId": "coder", "targetAgentId": "reviewer", "name": "review", "mode": "Template",
+      "prompt": "Task: {{task}}\n\nThe coder reports:\n{{output}}\n\nReview the changes.", "maxTraversals": 4
+    },
+    {
+      "id": "review-to-code", "sourceAgentId": "reviewer", "targetAgentId": "coder", "name": "rework", "mode": "Handoff",
+      "prompt": "You are now the Coder again. Fix every problem the reviewer listed above, then summarize your changes.",
+      "condition": { "type": "Keyword", "value": "APPROVED", "negate": true }, "maxTraversals": 3
+    }
+  ]
+}

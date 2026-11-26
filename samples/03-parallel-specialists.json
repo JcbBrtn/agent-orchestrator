@@ -1,0 +1,57 @@
+{
+  "id": "builtin-parallel-specialists",
+  "name": "3 · Parallel Specialists (Mixture of Agents)",
+  "description": "Fan-out / fan-in: a Scoper hands the same target to three independent reviewers that run in parallel, then an Aggregator (Join: WaitForAll) merges their reports into one prioritised verdict.",
+  "references": [
+    { "title": "Mixture-of-Agents Enhances Large Language Model Capabilities", "authors": "Wang et al., 2024", "url": "https://arxiv.org/abs/2406.04692" }
+  ],
+  "maxTotalSteps": 8,
+  "runBranchesInParallel": true,
+  "agents": [
+    {
+      "id": "scoper", "name": "Scoper",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "Identify exactly what should be reviewed for the user's request: list the relevant files and a one-paragraph description of what they do. Do not review anything yourself.",
+      "enabledTools": ["read_file", "list_directory", "search_files", "ask_user"],
+      "skillIds": ["asking-the-user"],
+      "maxToolIterations": 12, "x": 40, "y": 220
+    },
+    {
+      "id": "security", "name": "Security Reviewer",
+      "providerId": "copilot", "modelId": "", "temperature": 0.3,
+      "systemPrompt": "You are an application-security expert. Review ONLY for security issues (injection, authz, secrets, unsafe deserialization, path traversal). Rate each finding High/Medium/Low with file and line.",
+      "enabledTools": ["read_file", "list_directory", "search_files"],
+      "maxToolIterations": 20, "x": 420, "y": 20
+    },
+    {
+      "id": "performance", "name": "Performance Reviewer",
+      "providerId": "copilot", "modelId": "", "temperature": 0.7,
+      "systemPrompt": "You are a performance engineer. Review ONLY for performance: algorithmic complexity, allocations, blocking I/O, N+1 calls, missing caching. Rate each finding High/Medium/Low with file and line.",
+      "enabledTools": ["read_file", "list_directory", "search_files"],
+      "maxToolIterations": 20, "x": 420, "y": 220
+    },
+    {
+      "id": "maintainability", "name": "Maintainability Reviewer",
+      "providerId": "copilot", "modelId": "", "temperature": 0.5,
+      "systemPrompt": "You are a staff engineer. Review ONLY for maintainability: naming, duplication, coupling, test gaps, unclear intent. Rate each finding High/Medium/Low with file and line.",
+      "enabledTools": ["read_file", "list_directory", "search_files"],
+      "maxToolIterations": 20, "x": 420, "y": 420
+    },
+    {
+      "id": "aggregator", "name": "Aggregator",
+      "providerId": "copilot", "modelId": "", "temperature": 0.2,
+      "joinMode": "WaitForAll",
+      "systemPrompt": "You receive several independent expert reviews. Critically synthesize them: merge duplicates, resolve conflicts (explain which side you take), and produce one prioritised action list with a final verdict (Ship / Fix first / Rework). Do not simply concatenate.",
+      "enabledTools": ["read_file"],
+      "maxToolIterations": 8, "x": 820, "y": 220
+    }
+  ],
+  "arrows": [
+    { "id": "s-sec", "sourceAgentId": "scoper", "targetAgentId": "security", "name": "security", "prompt": "Request: {{task}}\n\nScope:\n{{output}}", "maxTraversals": 1 },
+    { "id": "s-perf", "sourceAgentId": "scoper", "targetAgentId": "performance", "name": "performance", "prompt": "Request: {{task}}\n\nScope:\n{{output}}", "maxTraversals": 1 },
+    { "id": "s-maint", "sourceAgentId": "scoper", "targetAgentId": "maintainability", "name": "maintainability", "prompt": "Request: {{task}}\n\nScope:\n{{output}}", "maxTraversals": 1 },
+    { "id": "sec-agg", "sourceAgentId": "security", "targetAgentId": "aggregator", "name": "security report", "prompt": "## Security review\n{{output}}", "maxTraversals": 1 },
+    { "id": "perf-agg", "sourceAgentId": "performance", "targetAgentId": "aggregator", "name": "performance report", "prompt": "## Performance review\n{{output}}", "maxTraversals": 1 },
+    { "id": "maint-agg", "sourceAgentId": "maintainability", "targetAgentId": "aggregator", "name": "maintainability report", "prompt": "## Maintainability review\n{{output}}", "maxTraversals": 1 }
+  ]
+}

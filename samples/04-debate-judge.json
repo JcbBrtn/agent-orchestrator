@@ -1,0 +1,55 @@
+{
+  "id": "builtin-debate-judge",
+  "name": "4 · Debate with a Judge",
+  "description": "Two debaters argue opposite sides for two rounds (Handoff arrows carry the whole transcript forward); if the Skeptic writes AGREED the debate ends early (keyword condition). A Judge then rules on the full transcript.",
+  "references": [
+    { "title": "Improving Factuality and Reasoning in Language Models through Multiagent Debate", "authors": "Du et al., 2023", "url": "https://arxiv.org/abs/2305.14325" },
+    { "title": "AI safety via debate", "authors": "Irving, Christiano, Amodei, 2018", "url": "https://arxiv.org/abs/1805.00899" }
+  ],
+  "maxTotalSteps": 10,
+  "agents": [
+    {
+      "id": "advocate", "name": "Advocate",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a debater arguing FOR the proposition in the user's task. Make your strongest, evidence-based case in under 250 words. Use your tools to check facts in the working directory when relevant.",
+      "enabledTools": ["read_file", "list_directory", "search_files", "web_request"],
+      "maxToolIterations": 10, "x": 40, "y": 200
+    },
+    {
+      "id": "skeptic", "name": "Skeptic",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a debater arguing AGAINST the proposition. Attack the weakest points of the opposing argument in under 250 words. If, and only if, the opposing side has genuinely convinced you, begin your reply with AGREED.",
+      "enabledTools": ["read_file", "list_directory", "search_files", "web_request"],
+      "maxToolIterations": 10, "x": 400, "y": 80
+    },
+    {
+      "id": "advocate-2", "name": "Advocate (rebuttal)",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a debater arguing FOR the proposition. Answer the opponent's strongest objections directly and concede points that are truly lost.",
+      "enabledTools": ["read_file", "list_directory", "search_files", "web_request"],
+      "maxToolIterations": 10, "x": 760, "y": 0
+    },
+    {
+      "id": "skeptic-2", "name": "Skeptic (closing)",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a debater arguing AGAINST the proposition. Give your closing argument in under 200 words.",
+      "enabledTools": ["read_file", "list_directory", "search_files", "web_request"],
+      "maxToolIterations": 10, "x": 1100, "y": 80
+    },
+    {
+      "id": "judge", "name": "Judge",
+      "providerId": "copilot", "modelId": "", "temperature": 0.1,
+      "joinMode": "Any",
+      "systemPrompt": "You are an impartial judge. The full debate transcript is in the conversation. Evaluate argument quality and evidence, not rhetoric or length. Output: Verdict (Pro / Con / Mixed), the 3 decisive points, and a confidence level.",
+      "enabledTools": [],
+      "maxToolIterations": 3, "x": 740, "y": 360
+    }
+  ],
+  "arrows": [
+    { "id": "a-s", "sourceAgentId": "advocate", "targetAgentId": "skeptic", "name": "opening", "prompt": "Proposition: {{task}}\n\nOpposing opening argument:\n{{output}}\n\nRespond.", "maxTraversals": 1 },
+    { "id": "s-a2", "sourceAgentId": "skeptic", "targetAgentId": "advocate-2", "name": "challenge", "mode": "Handoff", "prompt": "The opponent replied:\n{{output}}\n\nWrite your rebuttal.", "condition": { "type": "Keyword", "value": "AGREED", "negate": true }, "maxTraversals": 1 },
+    { "id": "a2-s2", "sourceAgentId": "advocate-2", "targetAgentId": "skeptic-2", "name": "rebuttal", "mode": "Handoff", "prompt": "The opponent's rebuttal:\n{{output}}\n\nGive your closing argument.", "maxTraversals": 1 },
+    { "id": "s-j-early", "sourceAgentId": "skeptic", "targetAgentId": "judge", "name": "early consensus", "mode": "Handoff", "prompt": "You are now the impartial Judge. The Skeptic conceded after round one. Judge the debate above. Proposition: {{task}}", "condition": { "type": "Keyword", "value": "AGREED" }, "maxTraversals": 1 },
+    { "id": "s2-j", "sourceAgentId": "skeptic-2", "targetAgentId": "judge", "name": "to judge", "mode": "Handoff", "prompt": "You are now the impartial Judge. The debate is over; judge the whole exchange above. Proposition: {{task}}", "maxTraversals": 1 }
+  ]
+}

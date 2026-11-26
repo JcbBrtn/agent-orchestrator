@@ -1,0 +1,40 @@
+{
+  "id": "builtin-human-in-the-loop",
+  "name": "7 · Human-in-the-Loop Operator",
+  "description": "A cautious ops pipeline: the Analyst interviews you with ask_user, the Operator executes PowerShell with approval on EVERY call (AlwaysAsk), and a read-only Auditor checks the result and can send the Operator back (up to twice).",
+  "references": [
+    { "title": "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation", "authors": "Wu et al., 2023", "url": "https://arxiv.org/abs/2308.08155" },
+    { "title": "ReAct: Synergizing Reasoning and Acting in Language Models", "authors": "Yao et al., 2022", "url": "https://arxiv.org/abs/2210.03629" }
+  ],
+  "maxTotalSteps": 10,
+  "agents": [
+    {
+      "id": "analyst", "name": "Analyst",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You scope operational tasks with the human. Inspect the working directory, ask the user the questions needed to remove ambiguity (one at a time, with options), then output a numbered, minimal, reversible step plan with the exact PowerShell commands, flagging anything destructive.",
+      "enabledTools": ["read_file", "list_directory", "search_files", "ask_user"],
+      "skillIds": ["asking-the-user"],
+      "maxToolIterations": 15, "x": 40, "y": 160
+    },
+    {
+      "id": "operator", "name": "Operator",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You execute the approved plan step by step with run_powershell. Run one command at a time, check its output, and stop immediately if something unexpected happens. Report each command and its result.",
+      "enabledTools": ["run_powershell", "read_file", "list_directory"],
+      "approvalMode": "AlwaysAsk",
+      "maxToolIterations": 25, "x": 400, "y": 160
+    },
+    {
+      "id": "auditor", "name": "Auditor",
+      "providerId": "copilot", "modelId": "", "temperature": 0.1,
+      "systemPrompt": "You independently verify the Operator's claims by reading files and directories (you cannot run commands). If the task was completed correctly and safely, reply with PASS on the first line, otherwise FAIL followed by what is wrong.",
+      "enabledTools": ["read_file", "list_directory", "search_files"],
+      "maxToolIterations": 12, "x": 760, "y": 160
+    }
+  ],
+  "arrows": [
+    { "id": "an-op", "sourceAgentId": "analyst", "targetAgentId": "operator", "name": "execute plan", "prompt": "Task: {{task}}\n\nApproved plan:\n{{output}}", "maxTraversals": 1 },
+    { "id": "op-au", "sourceAgentId": "operator", "targetAgentId": "auditor", "name": "audit", "prompt": "Task: {{task}}\n\nThe operator reports:\n{{output}}\n\nVerify the result.", "maxTraversals": 3 },
+    { "id": "au-op", "sourceAgentId": "auditor", "targetAgentId": "operator", "name": "fix", "mode": "Handoff", "prompt": "The auditor says the result is not acceptable:\n{{output}}\n\nCorrect it, one command at a time.", "condition": { "type": "Keyword", "value": "PASS", "negate": true }, "maxTraversals": 2 }
+  ]
+}

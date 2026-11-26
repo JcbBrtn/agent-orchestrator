@@ -1,0 +1,47 @@
+{
+  "id": "builtin-writer-critic",
+  "name": "6 · Writer ⇄ Critic (Self-Refine)",
+  "description": "Generate, critique against a rubric, refine. The Critic ends with SCORE: n/10; a Regex condition publishes at 9+ and otherwise (Negate) sends feedback back to the Drafter, up to three revisions.",
+  "references": [
+    { "title": "Self-Refine: Iterative Refinement with Self-Feedback", "authors": "Madaan et al., 2023", "url": "https://arxiv.org/abs/2303.17651" },
+    { "title": "CRITIC: Large Language Models Can Self-Correct with Tool-Interactive Critiquing", "authors": "Gou et al., 2023", "url": "https://arxiv.org/abs/2305.11738" }
+  ],
+  "maxTotalSteps": 14,
+  "agents": [
+    {
+      "id": "outliner", "name": "Outliner",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "Create a tight outline for the requested piece of writing: audience, goal, and 4-7 section bullets with the key point of each. Ask the user about audience or tone if unclear.",
+      "enabledTools": ["read_file", "list_directory", "ask_user"],
+      "skillIds": ["asking-the-user"],
+      "maxToolIterations": 8, "x": 40, "y": 160
+    },
+    {
+      "id": "drafter", "name": "Drafter",
+      "providerId": "copilot", "modelId": "", "temperature": 0.8,
+      "systemPrompt": "You are a skilled writer. Write the full piece following the outline. When given critique, revise the whole piece addressing every point and output the complete new version.",
+      "enabledTools": ["read_file"],
+      "maxToolIterations": 6, "x": 400, "y": 160
+    },
+    {
+      "id": "critic", "name": "Critic",
+      "providerId": "copilot", "modelId": "", "temperature": 0.2,
+      "systemPrompt": "You are a demanding editor. Grade the draft on clarity, structure, accuracy, concision and fit to the brief (each 0-10) with specific, actionable feedback quoting the weak passages. Finish with a final line in EXACTLY this form: SCORE: n/10 (the overall grade; 9 or 10 only if you would publish it unchanged).",
+      "enabledTools": [],
+      "maxToolIterations": 3, "x": 760, "y": 160
+    },
+    {
+      "id": "publisher", "name": "Publisher",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "Save the approved piece as a markdown file in the working directory (pick a descriptive file name) using create_file, then reply with the file name and the final text.",
+      "enabledTools": ["create_file"],
+      "maxToolIterations": 4, "x": 1120, "y": 60
+    }
+  ],
+  "arrows": [
+    { "id": "o-d", "sourceAgentId": "outliner", "targetAgentId": "drafter", "name": "outline", "prompt": "Brief: {{task}}\n\nOutline:\n{{output}}\n\nWrite the full piece.", "maxTraversals": 1 },
+    { "id": "d-c", "sourceAgentId": "drafter", "targetAgentId": "critic", "name": "critique", "prompt": "Brief: {{task}}\n\nDraft:\n{{output}}", "maxTraversals": 4 },
+    { "id": "c-d", "sourceAgentId": "critic", "targetAgentId": "drafter", "name": "refine", "mode": "Handoff", "prompt": "Editor feedback:\n{{output}}\n\nRevise the piece and output the complete new version.", "condition": { "type": "Regex", "value": "SCORE:\\s*(9|10)\\s*/\\s*10", "negate": true }, "maxTraversals": 3 },
+    { "id": "c-p", "sourceAgentId": "critic", "targetAgentId": "publisher", "name": "publish", "prompt": "The Critic approved this. Here is the critique and the score:\n{{output}}\n\nThe approved draft is in the Critic's input:\n{{input}}", "condition": { "type": "Regex", "value": "SCORE:\\s*(9|10)\\s*/\\s*10" }, "maxTraversals": 1 }
+  ]
+}

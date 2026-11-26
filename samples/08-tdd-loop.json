@@ -1,0 +1,57 @@
+{
+  "id": "builtin-tdd-loop",
+  "name": "8 · Test-Driven Loop with Escalation",
+  "description": "Flow engineering: a Test Author writes tests first, an Implementer makes them pass, and a Test Runner executes them and CHOOSES the next step with route_to: pass, fix (back to Implementer) or escalate (ask the human). Shows AgentChoice routing, loops and human escalation.",
+  "references": [
+    { "title": "Code Generation with AlphaCodium: From Prompt Engineering to Flow Engineering", "authors": "Ridnik et al., 2024", "url": "https://arxiv.org/abs/2401.08500" },
+    { "title": "CodeT: Code Generation with Generated Tests", "authors": "Chen et al., 2022", "url": "https://arxiv.org/abs/2207.10397" },
+    { "title": "Reflexion: Language Agents with Verbal Reinforcement Learning", "authors": "Shinn et al., 2023", "url": "https://arxiv.org/abs/2303.11366" }
+  ],
+  "maxTotalSteps": 16,
+  "agents": [
+    {
+      "id": "test-author", "name": "Test Author",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "Write tests BEFORE the implementation exists. Study the project's test framework and conventions, then create focused tests covering normal, edge and failure cases for the task. State the exact command that runs them. Do not implement the feature.",
+      "enabledTools": ["read_file", "create_file", "list_directory", "search_files", "ask_user"],
+      "skillIds": ["asking-the-user"],
+      "maxToolIterations": 20, "x": 40, "y": 200
+    },
+    {
+      "id": "implementer", "name": "Implementer",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "Implement the task so the existing tests pass. Never weaken or delete tests. Append a short entry to ATTEMPTS.md in the working directory after every attempt: what you tried and why it failed (reflection). Read ATTEMPTS.md first when it exists.",
+      "enabledTools": ["read_file", "create_file", "edit_file", "list_directory", "search_files"],
+      "maxToolIterations": 30, "x": 400, "y": 40
+    },
+    {
+      "id": "test-runner", "name": "Test Runner",
+      "providerId": "copilot", "modelId": "", "temperature": 0.0,
+      "systemPrompt": "Run the tests with run_powershell and report the result faithfully. Then call route_to exactly once: 'pass' if all tests pass; 'fix' if tests fail and ATTEMPTS.md shows fewer than 3 attempts (include the failing test names and error messages in the message); 'escalate' if there have been 3 or more attempts or the failure looks like a bad test or environment issue.",
+      "enabledTools": ["run_powershell", "read_file", "list_directory"],
+      "maxToolIterations": 12, "x": 760, "y": 200
+    },
+    {
+      "id": "summarizer", "name": "Summarizer",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "Write a brief summary of what was built, which tests cover it, and any follow-ups.",
+      "enabledTools": ["read_file", "list_directory"],
+      "maxToolIterations": 5, "x": 1120, "y": 40
+    },
+    {
+      "id": "escalation", "name": "Escalation",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "The automated loop is stuck. Summarize the situation in plain words and use ask_user to ask the human how to proceed, offering concrete options (e.g. relax a test, give a hint, stop). Then report their decision.",
+      "enabledTools": ["read_file", "ask_user"],
+      "skillIds": ["asking-the-user"],
+      "maxToolIterations": 6, "x": 1120, "y": 360
+    }
+  ],
+  "arrows": [
+    { "id": "ta-im", "sourceAgentId": "test-author", "targetAgentId": "implementer", "name": "implement", "prompt": "Task: {{task}}\n\nTests are written:\n{{output}}\n\nNow implement.", "maxTraversals": 1 },
+    { "id": "im-tr", "sourceAgentId": "implementer", "targetAgentId": "test-runner", "name": "run tests", "prompt": "Task: {{task}}\n\nImplementer says:\n{{output}}\n\nRun the tests.", "maxTraversals": 4 },
+    { "id": "tr-pass", "sourceAgentId": "test-runner", "targetAgentId": "summarizer", "name": "pass", "description": "All tests pass", "prompt": "Task: {{task}}\n\nTest results:\n{{output}}", "condition": { "type": "AgentChoice" }, "maxTraversals": 1 },
+    { "id": "tr-fix", "sourceAgentId": "test-runner", "targetAgentId": "implementer", "name": "fix", "description": "Tests fail, fewer than 3 attempts so far", "mode": "Template", "prompt": "Task: {{task}}\n\nTests failed:\n{{message}}\n\nRead ATTEMPTS.md, fix the implementation and log this attempt.", "condition": { "type": "AgentChoice" }, "maxTraversals": 3 },
+    { "id": "tr-esc", "sourceAgentId": "test-runner", "targetAgentId": "escalation", "name": "escalate", "description": "Stuck: 3+ attempts or a bad test/environment", "prompt": "Task: {{task}}\n\nThe loop is stuck:\n{{message}}\n\nLast test output:\n{{output}}", "condition": { "type": "AgentChoice" }, "maxTraversals": 1 }
+  ]
+}

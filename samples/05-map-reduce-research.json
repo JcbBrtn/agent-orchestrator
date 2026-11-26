@@ -1,0 +1,65 @@
+{
+  "id": "builtin-map-reduce-research",
+  "name": "5 · Map-Reduce Research",
+  "description": "A Planner splits the topic into three sub-questions (map); three Researchers investigate in parallel with web_request; an Editor (WaitForAll) merges them (reduce); a Fact-checker loops back to the Editor until every claim is VERIFIED.",
+  "references": [
+    { "title": "LLM×MapReduce: Simplified Long-Sequence Processing using Large Language Models", "authors": "Zhou et al., 2024", "url": "https://arxiv.org/abs/2410.09342" },
+    { "title": "Assisting in Writing Wikipedia-like Articles From Scratch with Large Language Models (STORM)", "authors": "Shao et al., 2024", "url": "https://arxiv.org/abs/2402.14207" }
+  ],
+  "maxTotalSteps": 14,
+  "agents": [
+    {
+      "id": "splitter", "name": "Splitter",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "Break the research topic into exactly three independent, non-overlapping sub-questions, numbered 1-3, each from a different perspective (e.g. background, current state, risks/critique). Ask the user if the topic is too vague. Output only the numbered list.",
+      "enabledTools": ["ask_user"],
+      "skillIds": ["asking-the-user"],
+      "maxToolIterations": 6, "x": 40, "y": 240
+    },
+    {
+      "id": "researcher-1", "name": "Researcher 1",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a researcher. Answer your assigned sub-question using web_request (GET) to read sources. Report findings as bullet points, each with its source URL. Say clearly what you could not verify.",
+      "enabledTools": ["web_request", "read_file", "search_files"],
+      "maxToolIterations": 20, "x": 400, "y": 40
+    },
+    {
+      "id": "researcher-2", "name": "Researcher 2",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a researcher. Answer your assigned sub-question using web_request (GET) to read sources. Report findings as bullet points, each with its source URL. Say clearly what you could not verify.",
+      "enabledTools": ["web_request", "read_file", "search_files"],
+      "maxToolIterations": 20, "x": 400, "y": 240
+    },
+    {
+      "id": "researcher-3", "name": "Researcher 3",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a researcher. Answer your assigned sub-question using web_request (GET) to read sources. Report findings as bullet points, each with its source URL. Say clearly what you could not verify.",
+      "enabledTools": ["web_request", "read_file", "search_files"],
+      "maxToolIterations": 20, "x": 400, "y": 440
+    },
+    {
+      "id": "editor", "name": "Editor (reduce)",
+      "providerId": "copilot", "modelId": "", "joinMode": "WaitForAll",
+      "systemPrompt": "You merge several researchers' notes into one coherent, well-structured report with an executive summary. Keep source URLs inline. Remove duplicates and flag contradictions explicitly. If a fact-checker lists problems, fix exactly those.",
+      "enabledTools": ["create_file"],
+      "maxToolIterations": 8, "x": 800, "y": 240
+    },
+    {
+      "id": "fact-checker", "name": "Fact-checker",
+      "providerId": "copilot", "modelId": "", "temperature": 0.1,
+      "systemPrompt": "Spot-check the report's most important claims by opening their cited URLs with web_request. If all checked claims hold, reply with VERIFIED on the first line. Otherwise list each unsupported or wrong claim.",
+      "enabledTools": ["web_request"],
+      "maxToolIterations": 15, "x": 1160, "y": 240
+    }
+  ],
+  "arrows": [
+    { "id": "m1", "sourceAgentId": "splitter", "targetAgentId": "researcher-1", "name": "map 1", "prompt": "Overall topic: {{task}}\n\nPlan:\n{{output}}\n\nYou are Researcher 1: handle ONLY sub-question 1.", "maxTraversals": 1 },
+    { "id": "m2", "sourceAgentId": "splitter", "targetAgentId": "researcher-2", "name": "map 2", "prompt": "Overall topic: {{task}}\n\nPlan:\n{{output}}\n\nYou are Researcher 2: handle ONLY sub-question 2.", "maxTraversals": 1 },
+    { "id": "m3", "sourceAgentId": "splitter", "targetAgentId": "researcher-3", "name": "map 3", "prompt": "Overall topic: {{task}}\n\nPlan:\n{{output}}\n\nYou are Researcher 3: handle ONLY sub-question 3.", "maxTraversals": 1 },
+    { "id": "r1", "sourceAgentId": "researcher-1", "targetAgentId": "editor", "name": "reduce 1", "prompt": "## Researcher 1\n{{output}}", "maxTraversals": 1 },
+    { "id": "r2", "sourceAgentId": "researcher-2", "targetAgentId": "editor", "name": "reduce 2", "prompt": "## Researcher 2\n{{output}}", "maxTraversals": 1 },
+    { "id": "r3", "sourceAgentId": "researcher-3", "targetAgentId": "editor", "name": "reduce 3", "prompt": "## Researcher 3\n{{output}}", "maxTraversals": 1 },
+    { "id": "ed-fc", "sourceAgentId": "editor", "targetAgentId": "fact-checker", "name": "check", "prompt": "Topic: {{task}}\n\nReport to fact-check:\n{{output}}", "maxTraversals": 3 },
+    { "id": "fc-ed", "sourceAgentId": "fact-checker", "targetAgentId": "editor", "name": "fix claims", "prompt": "The fact-checker found problems:\n{{output}}\n\nRevise the report: correct or remove those claims and output the full report again.", "condition": { "type": "Keyword", "value": "VERIFIED", "negate": true }, "maxTraversals": 2 }
+  ]
+}

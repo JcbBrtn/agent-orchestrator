@@ -1,0 +1,54 @@
+{
+  "id": "builtin-triage-router",
+  "name": "2 · Triage Router",
+  "description": "A controller agent classifies the request and dispatches it to exactly one specialist by calling route_to (AgentChoice arrows). Only the chosen branch runs.",
+  "references": [
+    { "title": "HuggingGPT: Solving AI Tasks with ChatGPT and its Friends in Hugging Face", "authors": "Shen et al., 2023", "url": "https://arxiv.org/abs/2303.17580" },
+    { "title": "ReAct: Synergizing Reasoning and Acting in Language Models", "authors": "Yao et al., 2022", "url": "https://arxiv.org/abs/2210.03629" }
+  ],
+  "maxTotalSteps": 8,
+  "agents": [
+    {
+      "id": "triage", "name": "Triage",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a dispatcher. Look at the request (and the working directory if needed) and pick exactly ONE route with route_to: bug (something is broken), feature (new behavior), question (user wants an explanation) or docs (documentation work). Put a short briefing for the specialist in the route message: what is wanted, relevant files, constraints. Do not do the work yourself.",
+      "enabledTools": ["read_file", "list_directory", "search_files", "ask_user"],
+      "skillIds": ["asking-the-user"],
+      "maxToolIterations": 10, "x": 40, "y": 220
+    },
+    {
+      "id": "bug-fixer", "name": "Bug Fixer",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a debugger. Reproduce or locate the root cause first, then make the smallest fix and explain the cause, the fix and how to verify it.",
+      "enabledTools": ["read_file", "edit_file", "list_directory", "search_files", "run_powershell"],
+      "maxToolIterations": 30, "x": 440, "y": 0
+    },
+    {
+      "id": "feature-builder", "name": "Feature Builder",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You are a feature engineer. Follow existing conventions in the codebase, implement the feature, and summarize the changes.",
+      "enabledTools": ["read_file", "create_file", "edit_file", "list_directory", "search_files", "run_powershell"],
+      "maxToolIterations": 30, "x": 440, "y": 170
+    },
+    {
+      "id": "explainer", "name": "Explainer",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You answer questions about the codebase. Read the relevant code and answer clearly, citing file names. Never modify files.",
+      "enabledTools": ["read_file", "list_directory", "search_files"],
+      "maxToolIterations": 20, "x": 440, "y": 340
+    },
+    {
+      "id": "docs-writer", "name": "Docs Writer",
+      "providerId": "copilot", "modelId": "",
+      "systemPrompt": "You write concise, accurate documentation. Read the code before describing it, and write or edit markdown files.",
+      "enabledTools": ["read_file", "create_file", "edit_file", "list_directory", "search_files"],
+      "maxToolIterations": 25, "x": 440, "y": 510
+    }
+  ],
+  "arrows": [
+    { "id": "r-bug", "sourceAgentId": "triage", "targetAgentId": "bug-fixer", "name": "bug", "description": "Something is broken", "prompt": "Task: {{task}}\n\nTriage briefing: {{message}}", "condition": { "type": "AgentChoice" }, "maxTraversals": 1 },
+    { "id": "r-feature", "sourceAgentId": "triage", "targetAgentId": "feature-builder", "name": "feature", "description": "New behavior requested", "prompt": "Task: {{task}}\n\nTriage briefing: {{message}}", "condition": { "type": "AgentChoice" }, "maxTraversals": 1 },
+    { "id": "r-question", "sourceAgentId": "triage", "targetAgentId": "explainer", "name": "question", "description": "User wants an explanation", "prompt": "Question: {{task}}\n\nTriage briefing: {{message}}", "condition": { "type": "AgentChoice" }, "maxTraversals": 1 },
+    { "id": "r-docs", "sourceAgentId": "triage", "targetAgentId": "docs-writer", "name": "docs", "description": "Documentation work", "prompt": "Task: {{task}}\n\nTriage briefing: {{message}}", "condition": { "type": "AgentChoice" }, "maxTraversals": 1 }
+  ]
+}
