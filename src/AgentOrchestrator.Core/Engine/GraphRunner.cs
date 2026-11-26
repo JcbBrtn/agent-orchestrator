@@ -174,7 +174,8 @@ public class GraphRunner(GraphRunnerOptions options)
                 var provider = options.ProviderLookup(activation.Agent.ProviderId)
                     ?? throw new InvalidOperationException($"Provider '{activation.Agent.ProviderId}' is not configured.");
                 using var client = options.ChatClientFactory.Create(provider, activation.Agent.ModelId);
-                return await executor.ExecuteAsync(activation.Agent, activation.Id, activation.Inputs, client, ct);
+                return await executor.ExecuteAsync(activation.Agent, activation.Id, activation.Inputs, client, ct,
+                    listToolsInPrompt: provider.Kind == ProviderKind.Ollama);
             }, ct);
         }
 

@@ -52,6 +52,43 @@ public class GraphRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task Ollama_system_prompt_lists_enabled_tools()
+    {
+        var agent = Agent("A");
+        agent.EnabledTools = [ToolNames.ReadFile];
+        var graph = new GraphDefinition { Agents = [agent] };
+        string? system = null;
+        _factory.Responders["A"] = m => { system = m[0].Text; return FakeChatClient.Text("ok"); };
+
+        await RunWithProvider(graph, "A", ProviderKind.Ollama);
+
+        Assert.Contains($"- {ToolNames.ReadFile}:", system);
+    }
+
+    [Fact]
+    public async Task Non_ollama_system_prompt_does_not_list_tools()
+    {
+        var agent = Agent("A");
+        agent.EnabledTools = [ToolNames.ReadFile];
+        var graph = new GraphDefinition { Agents = [agent] };
+        string? system = null;
+        _factory.Responders["A"] = m => { system = m[0].Text; return FakeChatClient.Text("ok"); };
+
+        await RunWithProvider(graph, "A", ProviderKind.LMStudio);
+
+        Assert.DoesNotContain("# Tools", system);
+    }
+
+    private Task<RunResult> RunWithProvider(GraphDefinition graph, string entry, ProviderKind kind) =>
+        new GraphRunner(new GraphRunnerOptions
+        {
+            ChatClientFactory = _factory,
+            ProviderLookup = _ => new ProviderConfig { Id = "fake", Name = "Fake", Kind = kind },
+            Approval = new AutoApproveService(),
+            UserInput = new NoUserInputService(),
+        }).RunAsync(graph, new RunRequest(entry, "the task", _workDir, null), e => { lock (_events) _events.Add(e); });
+
+    [Fact]
     public async Task Keyword_loop_runs_until_reviewer_approves()
     {
         var graph = new GraphDefinition

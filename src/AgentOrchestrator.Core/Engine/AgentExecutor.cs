@@ -34,12 +34,19 @@ public class RunContext
 public class AgentExecutor(RunContext run)
 {
     public async Task<AgentResult> ExecuteAsync(
-        AgentDefinition agent, string activationId, IReadOnlyList<AgentInput> inputs, IChatClient client, CancellationToken ct)
+        AgentDefinition agent, string activationId, IReadOnlyList<AgentInput> inputs, IChatClient client, CancellationToken ct,
+        bool listToolsInPrompt = false)
     {
         var choiceArrows = run.Graph.Outgoing(agent.Id).Where(a => a.Condition.Type == ConditionType.AgentChoice).ToList();
         var choices = new List<RouteChoice>();
 
-        var messages = new List<ChatMessage> { new(ChatRole.System, BuildSystemPrompt(agent, choiceArrows)) };
+        var functions = run.Toolbox.CreateFunctions(agent.EnabledTools).ToList();
+        if (choiceArrows.Count > 0)
+            functions.Add(CreateRouteTool(choiceArrows, choices));
+        if (agent.EnabledTools.Contains(ToolNames.AskUser, StringComparer.OrdinalIgnoreCase))
+            functions.Add(CreateAskUserTool(agent, activationId));
+
+        var messages = new List<ChatMessage> { new(ChatRole.System, BuildSystemPrompt(agent, choiceArrows, functions, listToolsInPrompt)) };
         var handoff = inputs.FirstOrDefault(i => i.HandoffHistory is { Count: > 0 })?.HandoffHistory;
         if (handoff is not null)
             messages.AddRange(handoff.Where(m => m.Role != ChatRole.System));
@@ -49,11 +56,6 @@ public class AgentExecutor(RunContext run)
             : string.Join("\n\n", inputs.Select(i => $"## From {i.SourceAgentName}\n{i.Message}"));
         messages.Add(new ChatMessage(ChatRole.User, inputText));
 
-        var functions = run.Toolbox.CreateFunctions(agent.EnabledTools).ToList();
-        if (choiceArrows.Count > 0)
-            functions.Add(CreateRouteTool(choiceArrows, choices));
-        if (agent.EnabledTools.Contains(ToolNames.AskUser, StringComparer.OrdinalIgnoreCase))
-            functions.Add(CreateAskUserTool(agent, activationId));
         var byName = functions.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
 
         var options = new ChatOptions { Temperature = agent.Temperature };
@@ -171,12 +173,19 @@ public class AgentExecutor(RunContext run)
         return decision != ApprovalDecision.Deny;
     }
 
-    private string BuildSystemPrompt(AgentDefinition agent, IReadOnlyList<ArrowDefinition> choiceArrows)
+    private string BuildSystemPrompt(
+        AgentDefinition agent, IReadOnlyList<ArrowDefinition> choiceArrows, IReadOnlyList<AIFunction> functions, bool listToolsInPrompt)
     {
         var sb = new StringBuilder(agent.SystemPrompt.Trim());
         sb.AppendLine().AppendLine();
         sb.AppendLine($"Working directory: {run.Toolbox.WorkingDirectory}");
         sb.AppendLine($"Original task: {run.Request.Task}");
+        if (listToolsInPrompt && functions.Count > 0)
+        {
+            sb.AppendLine().AppendLine("# Tools");
+            foreach (var function in functions)
+                sb.AppendLine($"- {function.Name}: {function.Description}");
+        }
         if (!string.IsNullOrWhiteSpace(run.Request.SessionContext))
             sb.AppendLine().AppendLine("# Earlier in this session").AppendLine(run.Request.SessionContext.Trim());
 
