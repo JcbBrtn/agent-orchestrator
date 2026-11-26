@@ -1,0 +1,585 @@
+<Window x:Class="AgentOrchestrator.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:nodify="https://miroiu.github.io/nodify"
+        xmlns:vm="clr-namespace:AgentOrchestrator.App.ViewModels"
+        xmlns:ctl="clr-namespace:AgentOrchestrator.App.Controls"
+        Title="{Binding Title}" Height="900" Width="1600" WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource WindowBackground}" Foreground="{DynamicResource WindowForeground}">
+    <Window.DataContext>
+        <vm:MainViewModel />
+    </Window.DataContext>
+
+    <Window.InputBindings>
+        <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}" />
+        <KeyBinding Key="O" Modifiers="Control" Command="{Binding OpenCommand}" />
+        <KeyBinding Key="N" Modifiers="Control" Command="{Binding NewGraphCommand}" />
+        <KeyBinding Key="F5" Command="{Binding RunCommand}" />
+    </Window.InputBindings>
+
+    <Window.Resources>
+        <!-- ===== Inspector: agent ===== -->
+        <DataTemplate DataType="{x:Type vm:AgentNodeViewModel}">
+            <StackPanel>
+                <TextBlock Text="Agent" FontSize="16" FontWeight="Bold" />
+
+                <TextBlock Text="Name" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+
+                <TextBlock Text="Provider" Style="{StaticResource FieldLabel}" />
+                <ComboBox ItemsSource="{Binding Providers}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                          SelectedValue="{Binding ProviderId}" />
+
+                <TextBlock Text="Model" Style="{StaticResource FieldLabel}" />
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="⟳" ToolTip="Fetch models from provider" Width="28" Margin="4,0,0,0"
+                            Command="{Binding RefreshModelsCommand}" />
+                    <ComboBox IsEditable="True" ItemsSource="{Binding AvailableModels}"
+                              Text="{Binding ModelId, UpdateSourceTrigger=PropertyChanged}" />
+                </DockPanel>
+                <TextBlock Text="{Binding ModelsStatus}" Style="{StaticResource Hint}"
+                           Visibility="{Binding ModelsStatus, Converter={StaticResource NullOrEmptyToCollapsed}}" />
+
+                <TextBlock Text="Temperature (blank = model default)" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding TemperatureText, UpdateSourceTrigger=LostFocus}" Width="80" HorizontalAlignment="Left" />
+
+                <TextBlock Text="System prompt" Style="{StaticResource FieldLabel}" />
+                <TextBox Style="{StaticResource MultiLine}" Height="160"
+                         Text="{Binding SystemPrompt, UpdateSourceTrigger=PropertyChanged}" />
+
+                <TextBlock Text="Tools" Style="{StaticResource FieldLabel}" />
+                <ItemsControl ItemsSource="{Binding Tools}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding IsChecked}" Margin="0,2" ToolTip="{Binding Description}">
+                                <TextBlock><Run Text="{Binding Label, Mode=OneWay}" FontFamily="Consolas" /><Run Text=" — " Foreground="{DynamicResource HintForeground}" /><Run Text="{Binding Description, Mode=OneWay}" Foreground="{DynamicResource HintForeground}" /></TextBlock>
+                            </CheckBox>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="Skills" Style="{StaticResource FieldLabel}" />
+                <TextBlock Text="No skills yet — create them via Skills… in the toolbar." Style="{StaticResource Hint}"
+                           Visibility="{Binding Skills.Count, Converter={StaticResource ZeroToVisible}}" />
+                <ItemsControl ItemsSource="{Binding Skills}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding IsChecked}" Content="{Binding Label}" ToolTip="{Binding Description}" Margin="0,2" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="Tool approval" Style="{StaticResource FieldLabel}" />
+                <ComboBox ItemsSource="{Binding ApprovalModes}" SelectedItem="{Binding ApprovalMode}" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="AskForRisky prompts for PowerShell, file writes outside the working directory, and non-GET web requests." />
+
+                <TextBlock Text="When multiple arrows lead here" Style="{StaticResource FieldLabel}" />
+                <ComboBox ItemsSource="{Binding JoinModes}" SelectedItem="{Binding JoinMode}" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Any: run once per incoming message. WaitForAll: wait for all upstream branches, then run once with every input." />
+
+                <TextBlock Text="Max tool iterations per activation" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding MaxToolIterations}" Width="80" HorizontalAlignment="Left" />
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- ===== Inspector: arrow ===== -->
+        <DataTemplate DataType="{x:Type vm:ArrowViewModel}">
+            <StackPanel>
+                <TextBlock Text="Arrow (prompt)" FontSize="16" FontWeight="Bold" />
+                <TextBlock Text="{Binding Header}" Style="{StaticResource Hint}" />
+
+                <TextBlock Text="Name (route name shown on the canvas)" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+
+                <TextBlock Text="Description (shown to the agent for agent-choice routing)" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" />
+
+                <TextBlock Text="Mode" Style="{StaticResource FieldLabel}" />
+                <ComboBox ItemsSource="{Binding Modes}" SelectedItem="{Binding Mode}" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Template: the target gets a fresh conversation built from the template. Handoff: the target continues the source's conversation plus the added context." />
+
+                <TextBlock Text="{Binding PromptLabel}" Style="{StaticResource FieldLabel}" />
+                <TextBox Style="{StaticResource MultiLine}" Height="180"
+                         Text="{Binding Prompt, UpdateSourceTrigger=PropertyChanged}" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Placeholders: {{output}} source's final answer, {{input}} source's input, {{task}} original task, {{source}} source agent name, {{message}} message passed via route_to." />
+
+                <TextBlock Text="Fires when" Style="{StaticResource FieldLabel}" />
+                <ComboBox ItemsSource="{Binding ConditionTypes}" SelectedItem="{Binding ConditionType}" />
+                <TextBox Text="{Binding ConditionValue, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"
+                         Visibility="{Binding ConditionNeedsValue, Converter={StaticResource BoolToVisibility}}" />
+                <CheckBox Content="Negate (fire when the condition does NOT match)" IsChecked="{Binding Negate}" Margin="0,6,0,0" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Always: fires on every completion. Keyword: output contains text (case-insensitive). Regex: output matches pattern. AgentChoice: the agent picks this route with the route_to tool." />
+
+                <TextBlock Text="Max traversals per run (0 = unlimited)" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding MaxTraversals}" Width="80" HorizontalAlignment="Left" />
+                <TextBlock Style="{StaticResource Hint}" Text="{Binding TraversalCount, StringFormat='Traversed {0} time(s) in the current run.'}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- ===== Inspector: graph ===== -->
+        <DataTemplate DataType="{x:Type vm:GraphSettingsViewModel}">
+            <StackPanel>
+                <TextBlock Text="Graph" FontSize="16" FontWeight="Bold" />
+                <TextBlock Text="Name" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding Main.GraphName, UpdateSourceTrigger=PropertyChanged}" />
+                <TextBlock Text="Max total agent steps per run" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding Main.MaxTotalSteps}" Width="80" HorizontalAlignment="Left" />
+                <CheckBox Content="Run parallel branches concurrently" IsChecked="{Binding Main.RunBranchesInParallel}" Margin="0,10,0,0" />
+                <TextBlock Style="{StaticResource Hint}" Margin="0,16,0,0" Text="How to use:" FontWeight="Bold" />
+                <TextBlock Style="{StaticResource Hint}" Text="• Add agents with ＋ Agent. Select an agent to edit its model, prompt, tools and skills." />
+                <TextBlock Style="{StaticResource Hint}" Text="• Drag from an agent's 'out' connector to another agent's 'in' connector to create an arrow." />
+                <TextBlock Style="{StaticResource Hint}" Text="• Click an arrow to edit its prompt, mode and condition. Alt+click a connector to disconnect." />
+                <TextBlock Style="{StaticResource Hint}" Text="• Right-drag (or middle-drag) to pan, wheel to zoom. Delete removes the selection." />
+                <TextBlock Style="{StaticResource Hint}" Text="• ＋ New session: type the task, pick the folder and orchestration underneath, press Enter. Run (F5) in a session asks for the entry agent and next task; after picking an orchestration, Run starts a new session." />
+            </StackPanel>
+        </DataTemplate>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- ===== Toolbar ===== -->
+        <ToolBarTray DockPanel.Dock="Top">
+            <ToolBar Loaded="OnToolBarLoaded">
+                <Button Content="New" Command="{Binding NewGraphCommand}" Style="{StaticResource ToolbarButton}" />
+                <Button Content="Open…" Command="{Binding OpenCommand}" Style="{StaticResource ToolbarButton}" />
+                <Button Content="Save" Command="{Binding SaveCommand}" Style="{StaticResource ToolbarButton}" />
+                <Button Content="Save as…" Command="{Binding SaveAsCommand}" Style="{StaticResource ToolbarButton}" />
+                <Separator />
+                <Button Content="＋ Agent" Command="{Binding AddAgentCommand}" Style="{StaticResource ToolbarButton}" />
+                <Button Content="Duplicate" Command="{Binding DuplicateSelectedCommand}" Style="{StaticResource ToolbarButton}" />
+                <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" Style="{StaticResource ToolbarButton}" />
+                <Separator />
+                <Button Content="▶ Run" Command="{Binding RunCommand}" Style="{StaticResource ToolbarButton}" FontWeight="Bold" />
+                <Button Content="{Binding IsPaused, Converter={StaticResource PauseLabel}}" Command="{Binding PauseResumeCommand}" Style="{StaticResource ToolbarButton}" />
+                <Button Content="■ Stop" Command="{Binding StopCommand}" Style="{StaticResource ToolbarButton}" />
+                <Separator />
+                <Button Content="Providers…" Command="{Binding ManageProvidersCommand}" Style="{StaticResource ToolbarButton}" />
+                <Button Content="Skills…" Command="{Binding ManageSkillsCommand}" Style="{StaticResource ToolbarButton}" />
+                <Button Content="Run history…" Command="{Binding ShowHistoryCommand}" Style="{StaticResource ToolbarButton}" />
+                <Separator />
+                <TextBlock Text="Theme" VerticalAlignment="Center" Margin="6,0,4,0" />
+                <ComboBox Style="{StaticResource {x:Type ComboBox}}" Width="110" ItemsSource="{Binding ThemeNames}"
+                          SelectedItem="{Binding SelectedTheme}" ToolTip="Colour theme" />
+            </ToolBar>
+        </ToolBarTray>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem Content="{Binding StatusText}" />
+        </StatusBar>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260" MinWidth="180" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="400" MinWidth="280" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ===== Left panel: orchestrations + sessions ===== -->
+            <Grid Grid.Column="0" Background="{DynamicResource PanelBackground}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="240" MinHeight="100" />
+                    <RowDefinition Height="5" />
+                    <RowDefinition Height="*" MinHeight="160" />
+                </Grid.RowDefinitions>
+
+            <!-- ===== Orchestrations ===== -->
+            <DockPanel Grid.Row="0">
+                <DockPanel DockPanel.Dock="Top" Margin="10,10,10,6">
+                    <TextBlock Text="Orchestrations" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Open…" Command="{Binding OpenCommand}" Padding="8,3" Margin="0,0,4,0"
+                                ToolTip="Open a graph file from anywhere" AutomationProperties.Name="Open orchestration" />
+                        <Button Content="＋ New" Command="{Binding NewGraphCommand}" Padding="8,3"
+                                ToolTip="Start a new, empty orchestration" AutomationProperties.Name="New orchestration" />
+                    </StackPanel>
+                </DockPanel>
+                <Grid>
+                    <ListBox ItemsSource="{Binding Orchestrations}" SelectedItem="{Binding SelectedOrchestration, Mode=TwoWay}"
+                             IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBool}}"
+                             BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Orchestrations">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:OrchestrationItemViewModel}">
+                                <StackPanel Margin="4,3" ToolTip="{Binding ToolTipText}">
+                                    <StackPanel.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Open" Command="{Binding PlacementTarget.Tag.OpenOrchestrationItemCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
+                                            <MenuItem Header="New session with this…" Command="{Binding PlacementTarget.Tag.NewSessionWithOrchestrationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
+                                            <MenuItem Header="Show references…" Command="{Binding PlacementTarget.Tag.ShowOrchestrationReferencesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"
+                                                      Visibility="{Binding HasReferences, Converter={StaticResource BoolToVisibility}}" />
+                                            <MenuItem Header="Show in folder" Command="{Binding PlacementTarget.Tag.ShowOrchestrationInFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
+                                            <Separator />
+                                            <MenuItem Header="Delete" Command="{Binding PlacementTarget.Tag.RemoveOrchestrationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"
+                                                      Visibility="{Binding InGraphsDir, Converter={StaticResource BoolToVisibility}}" />
+                                            <MenuItem Header="Remove from list" Command="{Binding PlacementTarget.Tag.RemoveOrchestrationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"
+                                                      Visibility="{Binding InGraphsDir, Converter={StaticResource InverseBoolToVisibility}}" />
+                                        </ContextMenu>
+                                    </StackPanel.ContextMenu>
+                                    <StackPanel.Tag>
+                                        <Binding Path="DataContext" RelativeSource="{RelativeSource AncestorType=ListBox}" />
+                                    </StackPanel.Tag>
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Details}" Style="{StaticResource Hint}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock Style="{StaticResource Hint}" Margin="12" VerticalAlignment="Top" TextAlignment="Center"
+                               Visibility="{Binding Orchestrations.Count, Converter={StaticResource ZeroToVisible}}"
+                               Text="No saved orchestrations yet. Build one on the canvas and Save it, or Open… an existing graph file." />
+                </Grid>
+            </DockPanel>
+
+            <GridSplitter Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+
+            <!-- ===== Sessions ===== -->
+            <DockPanel Grid.Row="2">
+                <DockPanel DockPanel.Dock="Top" Margin="10,10,10,6">
+                    <TextBlock Text="Sessions" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                    <Button Content="＋ New session" Command="{Binding NewSessionCommand}" HorizontalAlignment="Right" Padding="10,3"
+                            ToolTip="Choose a working directory and orchestration" AutomationProperties.Name="New session" />
+                </DockPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource ControlBorder}" BorderThickness="0,1,0,0" Padding="10,8"
+                        Visibility="{Binding ShowSessionDetails, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel>
+                        <TextBlock Text="{Binding ActiveSession.Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Style="{StaticResource Hint}" Text="{Binding ActiveSession.WorkingDirectory}" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource Hint}" Text="{Binding ActiveSession.Model.GraphPath}" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <Button Content="Edit…" Command="{Binding EditSessionCommand}" Padding="8,2" Margin="0,0,4,0" />
+                            <Button Content="Open folder" Command="{Binding OpenSessionFolderCommand}" Padding="8,2" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                <Grid>
+                    <ListBox ItemsSource="{Binding Sessions}" SelectedItem="{Binding ActiveSession, Mode=TwoWay}"
+                             IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBool}}"
+                             BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Sessions">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:SessionItemViewModel}">
+                                <StackPanel Margin="4,4" ToolTip="{Binding WorkingDirectory}">
+                                    <StackPanel.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Edit session…" Command="{Binding PlacementTarget.Tag.EditSessionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
+                                            <MenuItem Header="Open folder" Command="{Binding PlacementTarget.Tag.OpenSessionFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
+                                            <Separator />
+                                            <MenuItem Header="Delete session" Command="{Binding PlacementTarget.Tag.DeleteSessionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
+                                        </ContextMenu>
+                                    </StackPanel.ContextMenu>
+                                    <StackPanel.Tag>
+                                        <Binding Path="DataContext" RelativeSource="{RelativeSource AncestorType=ListBox}" />
+                                    </StackPanel.Tag>
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding WorkingDirectory}" Style="{StaticResource Hint}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Details}" Style="{StaticResource Hint}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="⚠ folder not found" Foreground="Goldenrod" FontSize="11"
+                                               Visibility="{Binding FolderMissing, Converter={StaticResource BoolToVisibility}}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock Style="{StaticResource Hint}" Margin="12" VerticalAlignment="Top" TextAlignment="Center"
+                               Visibility="{Binding Sessions.Count, Converter={StaticResource ZeroToVisible}}"
+                               Text="No sessions yet. Create one to pick a working directory and orchestration; its runs and transcript are kept together." />
+                </Grid>
+            </DockPanel>
+            </Grid>
+
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" />
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" MinHeight="150" />
+                    <RowDefinition Height="5" />
+                    <RowDefinition Height="300" MinHeight="80" />
+                </Grid.RowDefinitions>
+
+                <!-- ===== Canvas ===== -->
+                <nodify:NodifyEditor x:Name="Editor" Grid.Row="0" Background="{DynamicResource CanvasBackground}"
+                                     ItemsSource="{Binding Nodes}"
+                                     Connections="{Binding Connections}"
+                                     PendingConnection="{Binding PendingConnection}"
+                                     SelectedItem="{Binding SelectedNode, Mode=TwoWay}"
+                                     SelectedConnection="{Binding SelectedConnection, Mode=TwoWay}"
+                                     CanSelectMultipleItems="False"
+                                     DisconnectConnectorCommand="{Binding DisconnectConnectorCommand}"
+                                     RemoveConnectionCommand="{Binding RemoveConnectionCommand}">
+                    <nodify:NodifyEditor.InputBindings>
+                        <KeyBinding Key="Delete" Command="{Binding DeleteSelectedCommand}" />
+                        <KeyBinding Key="D" Modifiers="Control" Command="{Binding DuplicateSelectedCommand}" />
+                    </nodify:NodifyEditor.InputBindings>
+
+                    <nodify:NodifyEditor.ItemContainerStyle>
+                        <Style TargetType="{x:Type nodify:ItemContainer}" BasedOn="{StaticResource {x:Type nodify:ItemContainer}}">
+                            <Setter Property="Location" Value="{Binding Location, Mode=TwoWay}" />
+                        </Style>
+                    </nodify:NodifyEditor.ItemContainerStyle>
+
+                    <nodify:NodifyEditor.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:AgentNodeViewModel}">
+                            <nodify:Node Header="{Binding Name}" Input="{Binding Inputs}" Output="{Binding Outputs}"
+                                         MinWidth="200">
+                                <nodify:Node.Style>
+                                    <Style TargetType="{x:Type nodify:Node}" BasedOn="{StaticResource {x:Type nodify:Node}}">
+                                        <Setter Property="Background" Value="{DynamicResource NodeBackground}" />
+                                        <Setter Property="ContentBrush" Value="{DynamicResource NodeBackground}" />
+                                        <Setter Property="HeaderBrush" Value="{DynamicResource NodeHeader}" />
+                                        <Setter Property="Foreground" Value="{DynamicResource NodeForeground}" />
+                                        <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding RunState}" Value="Running">
+                                                <Setter Property="HeaderBrush" Value="DodgerBlue" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding RunState}" Value="WaitingApproval">
+                                                <Setter Property="HeaderBrush" Value="DarkOrange" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding RunState}" Value="WaitingInput">
+                                                <Setter Property="HeaderBrush" Value="MediumOrchid" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding RunState}" Value="Done">
+                                                <Setter Property="HeaderBrush" Value="SeaGreen" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding RunState}" Value="Error">
+                                                <Setter Property="HeaderBrush" Value="Firebrick" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </nodify:Node.Style>
+                                <nodify:Node.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" Foreground="White" FontWeight="SemiBold" />
+                                    </DataTemplate>
+                                </nodify:Node.HeaderTemplate>
+                                <nodify:Node.InputConnectorTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ConnectorViewModel}">
+                                        <nodify:NodeInput Header="{Binding Title}" IsConnected="{Binding IsConnected}"
+                                                          Foreground="{DynamicResource NodeSubtleForeground}" BorderBrush="{DynamicResource Connector}"
+                                                          Anchor="{Binding Anchor, Mode=OneWayToSource}" />
+                                    </DataTemplate>
+                                </nodify:Node.InputConnectorTemplate>
+                                <nodify:Node.OutputConnectorTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ConnectorViewModel}">
+                                        <nodify:NodeOutput Header="{Binding Title}" IsConnected="{Binding IsConnected}"
+                                                           Foreground="{DynamicResource NodeSubtleForeground}" BorderBrush="{DynamicResource Connector}"
+                                                           Anchor="{Binding Anchor, Mode=OneWayToSource}" />
+                                    </DataTemplate>
+                                </nodify:Node.OutputConnectorTemplate>
+                                <StackPanel Margin="4" MaxWidth="260">
+                                    <TextBlock Text="{Binding Subtitle}" Foreground="{DynamicResource NodeForeground}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding ToolSummary}" Foreground="{DynamicResource NodeSubtleForeground}" FontSize="11" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding RunState}" Foreground="{DynamicResource NodeSubtleForeground}" FontSize="11" FontStyle="Italic" />
+                                </StackPanel>
+                            </nodify:Node>
+                        </DataTemplate>
+                    </nodify:NodifyEditor.ItemTemplate>
+
+                    <nodify:NodifyEditor.ConnectionTemplate>
+                        <DataTemplate DataType="{x:Type vm:ArrowViewModel}">
+                            <ctl:ArrowConnection Source="{Binding Source.Anchor}" Target="{Binding Target.Anchor}"
+                                                 Text="{Binding Label}" ArrowEnds="End" FontSize="11"
+                                                 Foreground="{DynamicResource ArrowLabelForeground}"
+                                                 nodify:BaseConnection.IsSelectable="True">
+                                <ctl:ArrowConnection.Style>
+                                    <Style TargetType="{x:Type ctl:ArrowConnection}" BasedOn="{StaticResource {x:Type nodify:Connection}}">
+                                        <Setter Property="Stroke" Value="{DynamicResource ArrowStroke}" />
+                                        <Setter Property="Fill" Value="{DynamicResource ArrowStroke}" />
+                                        <Setter Property="StrokeThickness" Value="2" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsBackEdge}" Value="True">
+                                                <Setter Property="Stroke" Value="{DynamicResource ArrowBackEdge}" />
+                                                <Setter Property="Fill" Value="{DynamicResource ArrowBackEdge}" />
+                                                <Setter Property="StrokeDashArray" Value="4 3" />
+                                                <Setter Property="LabelPosition" Value="0.3" />
+                                            </DataTrigger>
+                                            <Trigger Property="nodify:BaseConnection.IsSelected" Value="True">
+                                                <Setter Property="Stroke" Value="{DynamicResource ArrowSelected}" />
+                                                <Setter Property="Fill" Value="{DynamicResource ArrowSelected}" />
+                                                <Setter Property="StrokeThickness" Value="3" />
+                                                <Setter Property="Foreground" Value="Black" />
+                                            </Trigger>
+                                            <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                <Setter Property="Stroke" Value="{DynamicResource ArrowActive}" />
+                                                <Setter Property="Fill" Value="{DynamicResource ArrowActive}" />
+                                                <Setter Property="StrokeThickness" Value="4" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ctl:ArrowConnection.Style>
+                            </ctl:ArrowConnection>
+                        </DataTemplate>
+                    </nodify:NodifyEditor.ConnectionTemplate>
+
+                    <nodify:NodifyEditor.PendingConnectionTemplate>
+                        <DataTemplate DataType="{x:Type vm:PendingConnectionViewModel}">
+                            <nodify:PendingConnection StartedCommand="{Binding StartCommand}"
+                                                      CompletedCommand="{Binding FinishCommand}"
+                                                      AllowOnlyConnectors="True" />
+                        </DataTemplate>
+                    </nodify:NodifyEditor.PendingConnectionTemplate>
+                </nodify:NodifyEditor>
+
+                <GridSplitter Grid.Row="1" HorizontalAlignment="Stretch" />
+
+                <!-- ===== Live run transcript ===== -->
+                <DockPanel Grid.Row="2" Background="{DynamicResource PanelBackground}">
+                    <DockPanel DockPanel.Dock="Top" Margin="6,4">
+                        <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearTranscriptCommand}" Padding="8,1" />
+                        <CheckBox DockPanel.Dock="Right" Content="Selected agent only" IsChecked="{Binding ShowSelectedAgentOnly}"
+                                  VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <TextBlock Text="Run output" FontWeight="Bold" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <ListBox x:Name="TranscriptList" ItemsSource="{Binding TranscriptView}" HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="False"
+                             BorderThickness="0,1,0,0" Background="{DynamicResource PanelBackground}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:TranscriptEntryViewModel}">
+                                <Border BorderBrush="{Binding Kind, Converter={StaticResource TranscriptKindToBrush}}" BorderThickness="3,0,0,0" Padding="6,2">
+                                    <Expander IsExpanded="{Binding IsExpanded}">
+                                        <Expander.Header>
+                                            <TextBlock>
+                                                <Run Text="{Binding Time, StringFormat=HH:mm:ss, Mode=OneWay}" Foreground="{DynamicResource HintForeground}" />
+                                                <Run Text="{Binding Header, Mode=OneWay}" FontWeight="SemiBold"
+                                                     Foreground="{Binding Kind, Converter={StaticResource TranscriptKindToBrush}}" />
+                                            </TextBlock>
+                                        </Expander.Header>
+                                        <TextBox Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0"
+                                                 FontFamily="Cascadia Mono, Consolas" MaxHeight="400" VerticalScrollBarVisibility="Auto"
+                                                 Background="Transparent"
+                                                 Visibility="{Binding Text, Converter={StaticResource NullOrEmptyToCollapsed}}" />
+                                    </Expander>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Grid>
+
+            <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" />
+
+            <!-- ===== Inspector ===== -->
+            <ScrollViewer Grid.Column="4" VerticalScrollBarVisibility="Auto" Background="{DynamicResource PanelBackground}">
+                <ContentControl Content="{Binding Inspector}" Margin="10" IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBool}}" />
+            </ScrollViewer>
+
+            <!-- ===== New session page (ChatGPT-style: one prompt box, settings underneath) ===== -->
+            <Grid x:Name="NewSessionPage" Grid.Column="2" Grid.ColumnSpan="3" Background="{DynamicResource WindowBackground}"
+                  Visibility="{Binding IsComposing, Converter={StaticResource BoolToVisibility}}" IsVisibleChanged="OnNewSessionPageVisibleChanged">
+                <Grid.InputBindings>
+                    <KeyBinding Key="Escape" Command="{Binding CancelComposerCommand}" />
+                </Grid.InputBindings>
+                <Button Content="✕ Close" Command="{Binding CancelComposerCommand}" HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="12" Padding="10,3" ToolTip="Back to the orchestration editor (Esc)" />
+                <StackPanel DataContext="{Binding Composer}" VerticalAlignment="Center" MaxWidth="780" Margin="32,0,32,60">
+                    <TextBlock Text="What should the agents work on?" FontSize="26" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" Margin="0,0,0,22" />
+
+                    <Border CornerRadius="22" BorderThickness="1" Padding="18,10,10,10">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{DynamicResource ControlBackground}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}" />
+                                <Style.Triggers>
+                                    <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                        <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" VerticalAlignment="Bottom" Width="36" Height="36" Margin="8,0,0,0"
+                                    Content="↑" FontSize="18" FontWeight="Bold" ToolTip="Start session (Enter)" AutomationProperties.Name="Start session"
+                                    Command="{Binding DataContext.StartNewSessionCommand, RelativeSource={RelativeSource AncestorType=Window}}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" CornerRadius="18" Background="{DynamicResource Accent}">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                              TextElement.Foreground="{DynamicResource AccentForeground}" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Opacity" Value="0.85" />
+                                            </Trigger>
+                                            <DataTrigger Binding="{Binding TaskText.Length}" Value="0">
+                                                <Setter TargetName="Bd" Property="Opacity" Value="0.35" />
+                                            </DataTrigger>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter TargetName="Bd" Property="Opacity" Value="0.35" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                            <Grid>
+                                <TextBlock Text="Describe the task for your agents…" Foreground="{DynamicResource HintForeground}"
+                                           FontSize="15" Margin="3,6,0,0" IsHitTestVisible="False"
+                                           Visibility="{Binding TaskText.Length, Converter={StaticResource ZeroToVisible}}" />
+                                <TextBox x:Name="PromptBox" Text="{Binding TaskText, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True" TextWrapping="Wrap" FontSize="15" MinHeight="56" MaxHeight="260"
+                                         VerticalContentAlignment="Top" Padding="0,5,0,5"
+                                         Background="Transparent" BorderThickness="0" AutomationProperties.Name="Task">
+                                    <TextBox.InputBindings>
+                                        <KeyBinding Key="Return" Command="{Binding DataContext.StartNewSessionCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    </TextBox.InputBindings>
+                                </TextBox>
+                            </Grid>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Session settings -->
+                    <WrapPanel HorizontalAlignment="Center" Margin="0,14,0,0">
+                        <WrapPanel.Resources>
+                            <Style x:Key="Chip" TargetType="Border">
+                                <Setter Property="CornerRadius" Value="16" />
+                                <Setter Property="BorderThickness" Value="1" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}" />
+                                <Setter Property="Background" Value="{DynamicResource PanelBackground}" />
+                                <Setter Property="Padding" Value="12,4" />
+                                <Setter Property="Margin" Value="4" />
+                            </Style>
+                        </WrapPanel.Resources>
+                        <Border Style="{StaticResource Chip}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="📁" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <Button Content="{Binding FolderDisplay}" Command="{Binding BrowseFolderCommand}" MaxWidth="360"
+                                        Background="Transparent" BorderThickness="0" Padding="0,2"
+                                        ToolTip="{Binding WorkingDirectory}" AutomationProperties.Name="Working directory" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Chip}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Orchestration" Foreground="{DynamicResource HintForeground}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <ComboBox ItemsSource="{Binding Graphs}" SelectedItem="{Binding SelectedGraph}"
+                                          MinWidth="140" MaxWidth="280" AutomationProperties.Name="Orchestration"
+                                          ToolTip="{Binding SelectedGraph.Display}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding ShortName}" ToolTip="{Binding Display}" TextTrimming="CharacterEllipsis" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Button Content="…" Command="{Binding BrowseGraphCommand}" Margin="4,0,0,0" Padding="6,0"
+                                        ToolTip="Pick a graph file" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Chip}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Starts at" Foreground="{DynamicResource HintForeground}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <ComboBox ItemsSource="{Binding EntryAgents}" SelectedItem="{Binding SelectedEntry}" DisplayMemberPath="Name"
+                                          MinWidth="110" AutomationProperties.Name="Entry agent" />
+                            </StackPanel>
+                        </Border>
+                    </WrapPanel>
+                    <TextBlock Style="{StaticResource Hint}" HorizontalAlignment="Center" Margin="0,10,0,0"
+                               Text="Enter to start · Shift+Enter for a new line · Esc to go back to the editor" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>
