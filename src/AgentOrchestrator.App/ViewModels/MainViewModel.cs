@@ -24,6 +24,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ConcurrentQueue<RunEvent> _pendingEvents = new();
     private readonly DispatcherTimer _eventPump;
     private readonly Dictionary<string, TranscriptEntryViewModel> _streaming = [];
+    private readonly Dictionary<string, TranscriptEntryViewModel> _streamingThinking = [];
     private readonly Dictionary<TranscriptEntryViewModel, StringBuilder> _tokenBuffers = [];
     private const int MaxLiveTranscriptEntries = 2000;
     private const int TranscriptTrimChunk = 200;
@@ -38,8 +39,7 @@ public partial class MainViewModel : ObservableObject
     {
         PendingConnection = new PendingConnectionViewModel(this);
         TranscriptView = CollectionViewSource.GetDefaultView(Transcript);
-        TranscriptView.Filter = o => !ShowSelectedAgentOnly || SelectedNode is null
-            || (o is TranscriptEntryViewModel t && (t.AgentId is null || t.AgentId == SelectedNode.Id));
+        TranscriptView.Filter = o => o is not TranscriptEntryViewModel t || IsVisibleInTranscript(t);
 
         _eventPump = new DispatcherTimer(TimeSpan.FromMilliseconds(50), DispatcherPriority.Background, (_, _) => PumpEvents(), Dispatcher.CurrentDispatcher);
         _services.Approval.WaitingForApproval += (_, r) => Dispatch(() => SetNodeState(r.AgentId, NodeRunState.WaitingApproval));
@@ -147,6 +147,14 @@ public partial class MainViewModel : ObservableObject
     }
 
     partial void OnShowSelectedAgentOnlyChanged(bool value) => TranscriptView.Refresh();
+
+    /// <summary>Agent input and thinking show only in the selected agent's view; everything else follows the existing rule.</summary>
+    private bool IsVisibleInTranscript(TranscriptEntryViewModel t)
+    {
+        if (t.Kind is TranscriptKind.Input or TranscriptKind.Thinking)
+            return ShowSelectedAgentOnly && SelectedNode is not null && t.AgentId == SelectedNode.Id;
+        return !ShowSelectedAgentOnly || SelectedNode is null || t.AgentId is null || t.AgentId == SelectedNode.Id;
+    }
 
     partial void OnFilePathChanged(string? value) => OnPropertyChanged(nameof(Title));
 
@@ -394,6 +402,7 @@ public partial class MainViewModel : ObservableObject
     {
         Transcript.Clear();
         _streaming.Clear();
+        _streamingThinking.Clear();
         _tokenBuffers.Clear();
         _trimNotice = null;
         _trimmedEntries = 0;
@@ -468,6 +477,7 @@ public partial class MainViewModel : ObservableObject
         foreach (var n in Nodes) n.RunState = NodeRunState.Idle;
         foreach (var c in Connections) { c.TraversalCount = 0; c.IsActive = false; }
         _streaming.Clear();
+        _streamingThinking.Clear();
         _tokenBuffers.Clear();
 
         var snapshot = JsonSerializer.Deserialize<GraphDefinition>(JsonSerializer.Serialize(Graph, Json.Options), Json.Options)!;
@@ -610,15 +620,43 @@ public partial class MainViewModel : ObservableObject
                     AddTranscriptEntry(new TranscriptEntryViewModel { Kind = TranscriptKind.Assistant, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = $"{e.AgentName} 💬", Text = e.Text ?? "" });
                 return;
 
-            case RunEventKind.NodeStarted:
-                SetNodeState(e.AgentId, NodeRunState.Running);
+            case RunEventKind.ReasoningToken:
+                if (e.ActivationId is null) return;
+                if (!_streamingThinking.TryGetValue(e.ActivationId, out var thought))
+                {
+                    thought = new TranscriptEntryViewModel { Kind = TranscriptKind.Thinking, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = $"{e.AgentName} 💭 thinking", IsExpanded = false };
+                    _streamingThinking[e.ActivationId] = thought;
+                    AddTranscriptEntry(thought);
+                }
+                if (!_tokenBuffers.TryGetValue(thought, out var thoughtBuffer))
+                {
+                    thoughtBuffer = new StringBuilder(thought.Text);
+                    _tokenBuffers[thought] = thoughtBuffer;
+                }
+                thoughtBuffer.Append(e.Text);
+                return;
+
+            case RunEventKind.Reasoning:
+                if (e.ActivationId is not null && _streamingThinking.Remove(e.ActivationId, out var streamedThought))
+                {
+                    _tokenBuffers.Remove(streamedThought);
+                    streamedThought.Text = e.Text ?? streamedThought.Text;
+                    return;
+                }
                 break;
+
+
             case RunEventKind.NodeCompleted:
                 SetNodeState(e.AgentId, NodeRunState.Done);
-                if (e.ActivationId is not null) _streaming.Remove(e.ActivationId);
+                if (e.ActivationId is not null)
+                {
+                    _streaming.Remove(e.ActivationId);
+                    _streamingThinking.Remove(e.ActivationId);
+                }
                 return;
             case RunEventKind.NodeFailed:
                 SetNodeState(e.AgentId, NodeRunState.Error);
+                if (e.ActivationId is not null) _streamingThinking.Remove(e.ActivationId);
                 break;
             case RunEventKind.ToolCallRequested:
                 if (e.ActivationId is not null) _streaming.Remove(e.ActivationId);

@@ -96,23 +96,53 @@ public class AgentExecutor(RunContext run)
             }
 
             var updates = new List<ChatResponseUpdate>();
+            var streamed = new StringBuilder();
+            var thinking = new StringBuilder();
+            var detector = new RepetitionDetector();
+            var looped = false;
             await foreach (var update in client.GetStreamingResponseAsync(messages, options, ct))
             {
                 updates.Add(update);
-                if (!string.IsNullOrEmpty(update.Text))
-                    Emit(RunEventKind.Token, agent, activationId, text: update.Text);
+                foreach (var reasoning in update.Contents.OfType<TextReasoningContent>())
+                {
+                    if (string.IsNullOrEmpty(reasoning.Text))
+                        continue;
+                    thinking.Append(reasoning.Text);
+                    Emit(RunEventKind.ReasoningToken, agent, activationId, text: reasoning.Text);
+                }
+                if (string.IsNullOrEmpty(update.Text))
+                    continue;
+                Emit(RunEventKind.Token, agent, activationId, text: update.Text);
+                streamed.Append(update.Text);
+                if (detector.Feed(update.Text))
+                {
+                    looped = true;
+                    break;
+                }
             }
 
-            var response = updates.ToChatResponse();
-            messages.AddRange(response.Messages);
-            own.AddRange(response.Messages);
+            // A looping response is cut to its non-repeating prefix, runs no tools, and is kept out of loop memory.
+            if (thinking.Length > 0)
+                Emit(RunEventKind.Reasoning, agent, activationId, text: thinking.ToString());
+            var response = looped
+                ? new ChatResponse(new ChatMessage(ChatRole.Assistant, streamed.ToString(0, detector.CutIndex)))
+                : updates.ToChatResponse();
+            var assistantMessages = response.Messages.Select(WithoutReasoning).ToList();
+            messages.AddRange(assistantMessages);
+            if (!looped)
+                own.AddRange(assistantMessages);
             if (!string.IsNullOrWhiteSpace(response.Text))
             {
                 output = response.Text;
                 Emit(RunEventKind.AssistantMessage, agent, activationId, text: response.Text);
             }
+            if (looped)
+            {
+                Emit(RunEventKind.Warning, agent, activationId, text: "Repetition loop detected; response truncated and the run continues.");
+                break;
+            }
 
-            var calls = response.Messages.SelectMany(m => m.Contents).OfType<FunctionCallContent>().ToList();
+            var calls = assistantMessages.SelectMany(m => m.Contents).OfType<FunctionCallContent>().ToList();
             if (calls.Count == 0)
                 break;
 
@@ -130,6 +160,11 @@ public class AgentExecutor(RunContext run)
 
         return new AgentResult(output, inputText, messages.Skip(1).ToList(), choices);
     }
+
+    private static ChatMessage WithoutReasoning(ChatMessage message) =>
+        message.Contents.Any(c => c is TextReasoningContent)
+            ? new ChatMessage(message.Role, message.Contents.Where(c => c is not TextReasoningContent).ToList())
+            : message;
 
     /// <summary>Drops the oldest messages beyond the cap, then any leading tool results whose function call was dropped.</summary>
     private static List<ChatMessage> TrimMemory(List<ChatMessage> memory, int maxMessages)

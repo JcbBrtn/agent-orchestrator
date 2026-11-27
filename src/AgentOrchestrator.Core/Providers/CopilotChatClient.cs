@@ -142,6 +142,7 @@ public sealed class CopilotChatClient(CopilotHost host, string? token, string mo
 
     private abstract record Item;
     private sealed record TextItem(string Text) : Item;
+    private sealed record ReasoningItem(string Text) : Item;
     private sealed record CallItem(PendingCall Call) : Item;
     private sealed record IdleItem : Item;
     private sealed record ErrorItem(string Message) : Item;
@@ -151,6 +152,7 @@ public sealed class CopilotChatClient(CopilotHost host, string? token, string mo
         private readonly Channel<Item> _items = Channel.CreateUnbounded<Item>();
         private readonly Dictionary<string, PendingCall> _pending = [];
         private readonly HashSet<string> _streamedMessageIds = [];
+        private readonly HashSet<string> _streamedReasoningIds = [];
         private int _disposed;
 
         public CopilotSession? Session { get; set; }
@@ -171,6 +173,18 @@ public sealed class CopilotChatClient(CopilotHost host, string? token, string mo
                         streamed = _streamedMessageIds.Contains(m.MessageId ?? "");
                     if (!streamed)
                         _items.Writer.TryWrite(new TextItem(m.Content));
+                    break;
+                case AssistantReasoningDeltaEvent { Data: { } rd } when !string.IsNullOrEmpty(rd.DeltaContent):
+                    lock (_streamedReasoningIds)
+                        _streamedReasoningIds.Add(rd.ReasoningId ?? "");
+                    _items.Writer.TryWrite(new ReasoningItem(rd.DeltaContent));
+                    break;
+                case AssistantReasoningEvent { Data: { } r } when !string.IsNullOrEmpty(r.Content):
+                    bool reasoningStreamed;
+                    lock (_streamedReasoningIds)
+                        reasoningStreamed = _streamedReasoningIds.Contains(r.ReasoningId ?? "");
+                    if (!reasoningStreamed)
+                        _items.Writer.TryWrite(new ReasoningItem(r.Content));
                     break;
                 case SessionErrorEvent e:
                     _items.Writer.TryWrite(new ErrorItem(e.Data?.Message ?? "GitHub Copilot reported an error."));
@@ -240,6 +254,9 @@ public sealed class CopilotChatClient(CopilotHost host, string? token, string mo
                 {
                     case TextItem text:
                         yield return new ChatResponseUpdate(ChatRole.Assistant, text.Text);
+                        break;
+                    case ReasoningItem reasoning:
+                        yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent(reasoning.Text)]);
                         break;
                     case CallItem { Call: var call }:
                         sawCall = true;

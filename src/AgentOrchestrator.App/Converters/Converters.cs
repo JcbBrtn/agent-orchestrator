@@ -11,6 +11,7 @@ public sealed class TranscriptKindToBrushConverter : IValueConverter
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value switch
     {
         TranscriptKind.Input => Brushes.SlateGray,
+        TranscriptKind.Thinking => Brushes.DarkCyan,
         TranscriptKind.Assistant => Brushes.CornflowerBlue,
         TranscriptKind.ToolCall => Brushes.DarkOrange,
         TranscriptKind.ToolResult => Brushes.Peru,

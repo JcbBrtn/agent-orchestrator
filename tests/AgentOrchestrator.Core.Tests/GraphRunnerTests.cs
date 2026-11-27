@@ -52,6 +52,57 @@ public class GraphRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task Reasoning_is_emitted_as_thinking_but_kept_out_of_output_and_later_calls()
+    {
+        var a = Agent("A");
+        a.KeepLoopMemory = true;
+        var graph = new GraphDefinition { Agents = [a, Agent("B")], Arrows = [Arrow("A", "B"), Arrow("B", "A", prompt: "again", max: 1)] };
+        _factory.Responders["A"] = _ => new ChatResponse(new ChatMessage(ChatRole.Assistant, [new TextReasoningContent("private thoughts"), new TextContent("answer")]));
+        _factory.Responders["B"] = _ => FakeChatClient.Text("ok");
+
+        await Run(graph, "A");
+
+        Assert.Equal(2, _factory.CallCount("A"));
+        var reasoning = _events.Where(e => e.Kind == RunEventKind.Reasoning && e.AgentId == "A").ToList();
+        Assert.Equal(2, reasoning.Count);
+        Assert.All(reasoning, e => Assert.Equal("private thoughts", e.Text));
+        Assert.Contains(_events, e => e.Kind == RunEventKind.ReasoningToken && e.Text == "private thoughts");
+        Assert.All(_events.Where(e => e.Kind == RunEventKind.AssistantMessage && e.AgentId == "A"), e => Assert.Equal("answer", e.Text));
+        Assert.Empty(_factory.Calls["A"][1].SelectMany(m => m.Contents).OfType<TextReasoningContent>());
+    }
+
+    [Fact]
+    public async Task Repetition_loop_truncates_the_response_and_the_run_continues()
+    {
+        var graph = new GraphDefinition { Agents = [Agent("A"), Agent("B")], Arrows = [Arrow("A", "B")] };
+        _factory.Responders["A"] = _ => FakeChatClient.Text("Answer: " + string.Concat(Enumerable.Repeat("stuck ", 40)));
+        _factory.Responders["B"] = m => FakeChatClient.Text("got " + LastUser(m));
+
+        var result = await Run(graph, "A");
+
+        Assert.Equal(RunStatus.Completed, result.Status);
+        Assert.Equal("got Answer: stuck ", Assert.Single(result.FinalOutputs).Output);
+        Assert.Contains(_events, e => e.Kind == RunEventKind.Warning && e.Text!.Contains("Repetition loop"));
+    }
+
+    [Fact]
+    public async Task Looping_response_is_not_stored_in_loop_memory()
+    {
+        var a = Agent("A");
+        a.KeepLoopMemory = true;
+        var graph = new GraphDefinition { Agents = [a, Agent("B")], Arrows = [Arrow("A", "B"), Arrow("B", "A", prompt: "again", max: 1)] };
+        _factory.Responders["A"] = m => _factory.CallCount("A") == 1
+            ? FakeChatClient.Text(string.Concat(Enumerable.Repeat("stuck ", 40)))
+            : FakeChatClient.Text("done");
+        _factory.Responders["B"] = _ => FakeChatClient.Text("b");
+
+        await Run(graph, "A");
+
+        var secondActivation = _factory.Calls["A"][1];
+        Assert.DoesNotContain(secondActivation, m => m.Text.Contains("stuck stuck"));
+    }
+
+    [Fact]
     public async Task Loop_memory_replays_only_the_agents_own_messages_on_a_loop_back()
     {
         var a = Agent("A");

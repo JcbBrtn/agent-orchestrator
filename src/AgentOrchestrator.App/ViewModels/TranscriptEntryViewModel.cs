@@ -8,6 +8,7 @@ public enum TranscriptKind
 {
     Info,
     Input,
+    Thinking,
     Assistant,
     ToolCall,
     ToolResult,
@@ -42,6 +43,7 @@ public partial class TranscriptEntryViewModel : ObservableObject
             RunEventKind.UserAnswer => new() { Kind = TranscriptKind.Answer, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = "🙋 Your answer", Text = e.Text ?? "" },
             RunEventKind.RunStarted => new TranscriptEntryViewModel { Kind = TranscriptKind.Info, Header = $"▶ Run started {e.Time.LocalDateTime:g}", Text = e.Text ?? "" },
             RunEventKind.NodeStarted => new() { Kind = TranscriptKind.Input, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = $"{who} ▶ input", Text = e.Text ?? "", IsExpanded = false },
+            RunEventKind.Reasoning => new() { Kind = TranscriptKind.Thinking, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = $"{who} 💭 thinking", Text = e.Text ?? "", IsExpanded = false },
             RunEventKind.ToolCallRequested => new() { Kind = TranscriptKind.ToolCall, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = $"{who} 🔧 {e.ToolName}", Text = e.Text ?? "" },
             RunEventKind.ToolCallCompleted => new() { Kind = TranscriptKind.ToolResult, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = $"{who} ← {e.ToolName} result", Text = e.Text ?? "", IsExpanded = false },
             RunEventKind.ToolCallDenied => new() { Kind = TranscriptKind.Denied, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = $"{who} ✖ {e.ToolName} denied" },

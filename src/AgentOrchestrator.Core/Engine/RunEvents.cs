@@ -8,6 +8,8 @@ public enum RunEventKind
     RunStarted,
     NodeStarted,
     Token,
+    ReasoningToken,
+    Reasoning,
     AssistantMessage,
     ToolCallRequested,
     ToolCallDenied,

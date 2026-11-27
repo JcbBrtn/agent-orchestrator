@@ -31,7 +31,7 @@ public class RunLogger(string runsDir)
 
     public void Write(string runId, RunEvent e)
     {
-        if (e.Kind == RunEventKind.Token || !_runs.TryGetValue(runId, out var run))
+        if (e.Kind is RunEventKind.Token or RunEventKind.ReasoningToken || !_runs.TryGetValue(runId, out var run))
             return;
         var line = JsonSerializer.Serialize(e, Json.Compact) + Environment.NewLine;
         lock (run.Gate)
