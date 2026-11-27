@@ -645,6 +645,9 @@ public partial class MainViewModel : ObservableObject
                 }
                 break;
 
+            case RunEventKind.NodeStarted:
+                SetNodeState(e.AgentId, NodeRunState.Running);
+                break;
 
             case RunEventKind.NodeCompleted:
                 SetNodeState(e.AgentId, NodeRunState.Done);
