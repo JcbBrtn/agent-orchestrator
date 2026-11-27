@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Data;
@@ -23,6 +24,12 @@ public partial class MainViewModel : ObservableObject
     private readonly ConcurrentQueue<RunEvent> _pendingEvents = new();
     private readonly DispatcherTimer _eventPump;
     private readonly Dictionary<string, TranscriptEntryViewModel> _streaming = [];
+    private readonly Dictionary<TranscriptEntryViewModel, StringBuilder> _tokenBuffers = [];
+    private const int MaxLiveTranscriptEntries = 2000;
+    private const int TranscriptTrimChunk = 200;
+    private TranscriptEntryViewModel? _trimNotice;
+    private int _trimmedEntries;
+    private int _replayGeneration;
     private CancellationTokenSource? _runCts;
     private PauseTokenSource? _pause;
     private string _savedJson = "";
@@ -387,6 +394,25 @@ public partial class MainViewModel : ObservableObject
     {
         Transcript.Clear();
         _streaming.Clear();
+        _tokenBuffers.Clear();
+        _trimNotice = null;
+        _trimmedEntries = 0;
+        _replayGeneration++;
+    }
+
+    /// <summary>Adds an entry to the live transcript, dropping the oldest ones past the cap (full history stays in the run logs).</summary>
+    private void AddTranscriptEntry(TranscriptEntryViewModel entry)
+    {
+        Transcript.Add(entry);
+        if (Transcript.Count <= MaxLiveTranscriptEntries) return;
+
+        if (_trimNotice is not null) Transcript.Remove(_trimNotice);
+        var drop = Transcript.Count - MaxLiveTranscriptEntries + TranscriptTrimChunk;
+        for (var i = 0; i < drop; i++)
+            Transcript.RemoveAt(0);
+        _trimmedEntries += drop;
+        _trimNotice = new TranscriptEntryViewModel { Kind = TranscriptKind.Info, Header = $"… {_trimmedEntries} older entries hidden (see Run history)" };
+        Transcript.Insert(0, _trimNotice);
     }
 
     // ---------- Running ----------
@@ -442,6 +468,7 @@ public partial class MainViewModel : ObservableObject
         foreach (var n in Nodes) n.RunState = NodeRunState.Idle;
         foreach (var c in Connections) { c.TraversalCount = 0; c.IsActive = false; }
         _streaming.Clear();
+        _tokenBuffers.Clear();
 
         var snapshot = JsonSerializer.Deserialize<GraphDefinition>(JsonSerializer.Serialize(Graph, Json.Options), Json.Options)!;
         var runner = new GraphRunner(new GraphRunnerOptions
@@ -463,13 +490,16 @@ public partial class MainViewModel : ObservableObject
         string? runId = null;
         try
         {
-            var request = new RunRequest(entryAgentId, task, session.WorkingDirectory,
-                SessionHistory.Build(_services.RunLogger, session.Model));
-            var result = await Task.Run(() => runner.RunAsync(snapshot, request, e =>
+            var result = await Task.Run(() =>
             {
-                runId ??= e.RunId;
-                _pendingEvents.Enqueue(e);
-            }, _pause, _runCts.Token));
+                var request = new RunRequest(entryAgentId, task, session.WorkingDirectory,
+                    SessionHistory.Build(_services.RunLogger, session.Model));
+                return runner.RunAsync(snapshot, request, e =>
+                {
+                    runId ??= e.RunId;
+                    _pendingEvents.Enqueue(e);
+                }, _pause, _runCts.Token);
+            });
             PumpEvents();
             StatusText = result.Status switch
             {
@@ -531,6 +561,7 @@ public partial class MainViewModel : ObservableObject
         NewSessionWithOrchestrationCommand.NotifyCanExecuteChanged();
         RemoveOrchestrationCommand.NotifyCanExecuteChanged();
         EditSessionCommand.NotifyCanExecuteChanged();
+        RerunSessionCommand.NotifyCanExecuteChanged();
         DeleteSessionCommand.NotifyCanExecuteChanged();
     }
 
@@ -538,6 +569,15 @@ public partial class MainViewModel : ObservableObject
     {
         while (_pendingEvents.TryDequeue(out var e))
             Apply(e);
+        FlushTokenBuffers();
+    }
+
+    /// <summary>Streamed tokens are appended to a buffer and written to the UI once per pump tick.</summary>
+    private void FlushTokenBuffers()
+    {
+        foreach (var (entry, text) in _tokenBuffers)
+            entry.Text = text.ToString();
+        _tokenBuffers.Clear();
     }
 
     private void Apply(RunEvent e)
@@ -550,16 +590,24 @@ public partial class MainViewModel : ObservableObject
                 {
                     entry = new TranscriptEntryViewModel { Kind = TranscriptKind.Assistant, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = $"{e.AgentName} 💬" };
                     _streaming[e.ActivationId] = entry;
-                    Transcript.Add(entry);
+                    AddTranscriptEntry(entry);
                 }
-                entry.Text += e.Text;
+                if (!_tokenBuffers.TryGetValue(entry, out var buffer))
+                {
+                    buffer = new StringBuilder(entry.Text);
+                    _tokenBuffers[entry] = buffer;
+                }
+                buffer.Append(e.Text);
                 return;
 
             case RunEventKind.AssistantMessage:
                 if (e.ActivationId is not null && _streaming.Remove(e.ActivationId, out var streamed))
+                {
+                    _tokenBuffers.Remove(streamed);
                     streamed.Text = e.Text ?? streamed.Text;
+                }
                 else
-                    Transcript.Add(new TranscriptEntryViewModel { Kind = TranscriptKind.Assistant, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = $"{e.AgentName} 💬", Text = e.Text ?? "" });
+                    AddTranscriptEntry(new TranscriptEntryViewModel { Kind = TranscriptKind.Assistant, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = $"{e.AgentName} 💬", Text = e.Text ?? "" });
                 return;
 
             case RunEventKind.NodeStarted:
@@ -588,7 +636,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         if (TranscriptEntryViewModel.FromEvent(e) is { } item)
-            Transcript.Add(item);
+            AddTranscriptEntry(item);
     }
 
     private void SetNodeState(string? agentId, NodeRunState state)

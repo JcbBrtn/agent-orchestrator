@@ -107,16 +107,22 @@ public partial class MainViewModel
         return (null, null);
     }
 
-    private void ReplaySessionTranscript(SessionDefinition session)
+    private async void ReplaySessionTranscript(SessionDefinition session)
     {
         ClearTranscript();
+        var generation = _replayGeneration;
         foreach (var n in Nodes) n.RunState = NodeRunState.Idle;
         var runIds = session.RunIds.TakeLast(MaxReplayedRuns).ToList();
-        if (session.RunIds.Count > runIds.Count)
-            Transcript.Add(new TranscriptEntryViewModel { Kind = TranscriptKind.Info, Header = $"… {session.RunIds.Count - runIds.Count} older run(s) hidden (see Run history)" });
-        foreach (var runId in runIds)
+        var hiddenRuns = session.RunIds.Count - runIds.Count;
+        var logger = _services.RunLogger;
+        var events = await Task.Run(() => runIds.Select(runId => (runId, logger.LoadEvents(runId))).ToList());
+        if (generation != _replayGeneration) return;
+
+        if (hiddenRuns > 0)
+            AddTranscriptEntry(new TranscriptEntryViewModel { Kind = TranscriptKind.Info, Header = $"… {hiddenRuns} older run(s) hidden (see Run history)" });
+        foreach (var (_, runEvents) in events)
         {
-            foreach (var e in _services.RunLogger.LoadEvents(runId))
+            foreach (var e in runEvents)
             {
                 var entry = e.Kind == RunEventKind.AssistantMessage
                     ? new TranscriptEntryViewModel { Time = e.Time, Kind = TranscriptKind.Assistant, AgentId = e.AgentId, ActivationId = e.ActivationId, Header = $"{e.AgentName} 💬", Text = e.Text ?? "" }
@@ -124,21 +130,58 @@ public partial class MainViewModel
                 if (entry is null) continue;
                 if (entry.Kind is TranscriptKind.Input or TranscriptKind.ToolCall or TranscriptKind.ToolResult)
                     entry.IsExpanded = false;
-                Transcript.Add(entry);
+                AddTranscriptEntry(entry);
             }
         }
     }
+
 
     [RelayCommand(CanExecute = nameof(CanEdit))]
     private void NewSession() => ShowComposer();
 
     /// <summary>Shows the new-session page (a single prompt box with the session settings underneath).</summary>
-    private void ShowComposer(string? preferredGraphPath = null)
+    private void ShowComposer(string? preferredGraphPath = null, string? workingDirectory = null, string? taskText = null, string? entryName = null,
+        SessionItemViewModel? rerunTarget = null)
     {
         var (choices, selected) = BuildGraphChoices(preferredGraphPath);
         Composer = new NewSessionViewModel(choices, selected,
-            _activeSession?.WorkingDirectory ?? _services.Settings.LastWorkingDirectory, AgentsOf, Composer?.TaskText ?? "");
+            workingDirectory ?? _activeSession?.WorkingDirectory ?? _services.Settings.LastWorkingDirectory, AgentsOf, taskText ?? Composer?.TaskText ?? "")
+        {
+            RerunTarget = rerunTarget,
+        };
+        if (entryName is not null)
+            Composer.SelectedEntry = Composer.EntryAgents.FirstOrDefault(e => e.Name == entryName) ?? Composer.SelectedEntry;
         IsComposing = true;
+    }
+
+    /// <summary>
+    /// Opens the new-session page prefilled with the session's starting prompt and entry agent. Starting it reruns the
+    /// task in the same session with the current orchestration; the session's previous runs are deleted only then.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanEdit))]
+    private void RerunSession(SessionItemViewModel? item)
+    {
+        item ??= _activeSession;
+        if (item is null) return;
+        var firstRun = SessionRerun.FirstRun(_services.RunLogger, item.Model);
+        if (firstRun is null)
+        {
+            MessageBox.Show("This session has no runs yet, so there is no starting prompt to rerun.", "Rerun session", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (item.FolderMissing)
+        {
+            MessageBox.Show($"The session's working directory does not exist:\n{item.WorkingDirectory}\n\nUse Edit session to choose another folder.", "Rerun session", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        var runCount = item.Model.RunIds.Count;
+        if (MessageBox.Show($"Rerun '{item.Name}' in this session?\n\nThis deletes its {runCount} previous run(s) and transcript, including their run logs in Run history. This cannot be undone.",
+                "Rerun session", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+        if (item != _activeSession && !OpenSession(item, startup: false)) return;
+
+        ShowComposer(workingDirectory: item.WorkingDirectory, taskText: firstRun.Task, entryName: firstRun.EntryAgentName, rerunTarget: item);
+        StatusText = "Rerun prepared: edit the task if needed, then start. Previous runs are deleted when you start.";
     }
 
     [RelayCommand]
@@ -199,11 +242,26 @@ public partial class MainViewModel
         if (!ValidateAgents() || entry is null)
             return;
 
-        var session = AddSession(SessionNameFromTask(task), c.WorkingDirectory, graphPath);
+        var session = c.RerunTarget is { } rerunTarget
+            ? PrepareRerun(rerunTarget, graphPath)
+            : AddSession(SessionNameFromTask(task), c.WorkingDirectory, graphPath);
         _services.Settings.LastWorkingDirectory = c.WorkingDirectory;
         c.TaskText = "";
         IsComposing = false;
         await ExecuteRunAsync(session, entry.Id, task);
+    }
+
+    /// <summary>Deletes a session's previous runs and transcript so its rerun starts fresh, and returns the session.</summary>
+    private SessionItemViewModel PrepareRerun(SessionItemViewModel item, string graphPath)
+    {
+        SessionRerun.DeleteRuns(_services.RunLogger, item.Model);
+        item.Model.GraphPath = graphPath;
+        item.Model.UpdatedAt = DateTimeOffset.Now;
+        _services.Sessions.Save(item.Model);
+        item.Refresh();
+        SetActiveSession(item);
+        ClearTranscript();
+        return item;
     }
 
     /// <summary>Creates, lists and activates a new session (with an empty transcript).</summary>

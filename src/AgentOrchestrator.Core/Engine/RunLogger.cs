@@ -46,6 +46,13 @@ public class RunLogger(string runsDir)
             run.Summary with { EndedAt = DateTimeOffset.Now, Status = result.Status, Error = result.Error, Steps = result.Steps, Outputs = result.FinalOutputs });
     }
 
+    public void DeleteRun(string runId)
+    {
+        var dir = Path.Combine(runsDir, Path.GetFileName(runId));
+        if (Directory.Exists(dir))
+            Directory.Delete(dir, true);
+    }
+
     public IReadOnlyList<RunSummary> ListRuns() =>
         Directory.EnumerateDirectories(runsDir)
             .Select(d => { try { return Json.Load<RunSummary>(Path.Combine(d, "run.json")); } catch { return null; } })

@@ -70,6 +70,51 @@ public class ToolsAndStoresTests
     }
 
     [Fact]
+    public void Rerun_deletes_only_the_session_runs()
+    {
+        var dir = Directory.CreateTempSubdirectory("ao-rerun").FullName;
+        try
+        {
+            var logger = new RunLogger(dir);
+            var graph = new GraphDefinition { Name = "g", Agents = [new AgentDefinition { Id = "a", Name = "A" }] };
+            foreach (var runId in new[] { "run1", "other" })
+            {
+                logger.BeginRun(runId, graph, new RunRequest("a", "task", dir, null));
+                logger.EndRun(runId, new RunResult(runId, RunStatus.Completed, [], null, 1, null));
+            }
+            var session = new SessionDefinition { RunIds = ["run1", "missing"] };
+
+            SessionRerun.DeleteRuns(logger, session);
+
+            Assert.Empty(session.RunIds);
+            Assert.False(Directory.Exists(Path.Combine(dir, "run1")));
+            Assert.NotNull(logger.LoadSummary("other"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Rerun_uses_first_run_as_starting_prompt()
+    {
+        var dir = Directory.CreateTempSubdirectory("ao-first").FullName;
+        try
+        {
+            var logger = new RunLogger(dir);
+            var graph = new GraphDefinition { Name = "g", Agents = [new AgentDefinition { Id = "a", Name = "Planner" }] };
+            var request = new RunRequest("a", "build the thing", dir, null);
+            logger.BeginRun("run1", graph, request);
+            logger.EndRun("run1", new RunResult("run1", RunStatus.Completed, [], null, 1, null));
+            var session = new SessionDefinition { RunIds = ["run1", "missing"] };
+
+            var first = SessionRerun.FirstRun(logger, session);
+            Assert.Equal("build the thing", first?.Task);
+            Assert.Equal("Planner", first?.EntryAgentName);
+            Assert.Null(SessionRerun.FirstRun(logger, new SessionDefinition()));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public void Sessions_round_trip_and_build_history()
     {
         var dir = Directory.CreateTempSubdirectory("ao-sessions").FullName;

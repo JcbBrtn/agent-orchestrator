@@ -27,6 +27,11 @@ public partial class NewSessionViewModel : ObservableObject
 
     public ObservableCollection<GraphChoice> Graphs { get; } = [];
 
+    /// <summary>The session being rerun in place, or null for a new session.</summary>
+    public SessionItemViewModel? RerunTarget { get; init; }
+
+    public bool IsRerun => RerunTarget is not null;
+
     [ObservableProperty] private string _taskText = "";
 
     [ObservableProperty]

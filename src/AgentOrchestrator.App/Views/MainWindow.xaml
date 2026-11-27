@@ -253,6 +253,7 @@
                         <TextBlock Style="{StaticResource Hint}" Text="{Binding ActiveSession.Model.GraphPath}" TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                             <Button Content="Edit…" Command="{Binding EditSessionCommand}" Padding="8,2" Margin="0,0,4,0" />
+                            <Button Content="Rerun…" Command="{Binding RerunSessionCommand}" Padding="8,2" Margin="0,0,4,0" />
                             <Button Content="Open folder" Command="{Binding OpenSessionFolderCommand}" Padding="8,2" />
                         </StackPanel>
                     </StackPanel>
@@ -268,6 +269,7 @@
                                     <StackPanel.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Edit session…" Command="{Binding PlacementTarget.Tag.EditSessionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
+                                            <MenuItem Header="Rerun…" Command="{Binding PlacementTarget.Tag.RerunSessionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
                                             <MenuItem Header="Open folder" Command="{Binding PlacementTarget.Tag.OpenSessionFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
                                             <Separator />
                                             <MenuItem Header="Delete session" Command="{Binding PlacementTarget.Tag.DeleteSessionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
@@ -436,7 +438,7 @@
                         <TextBlock Text="Run output" FontWeight="Bold" VerticalAlignment="Center" />
                     </DockPanel>
                     <ListBox x:Name="TranscriptList" ItemsSource="{Binding TranscriptView}" HorizontalContentAlignment="Stretch"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="False"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              BorderThickness="0,1,0,0" Background="{DynamicResource PanelBackground}">
                         <ListBox.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:TranscriptEntryViewModel}">
@@ -479,6 +481,9 @@
                 <StackPanel DataContext="{Binding Composer}" VerticalAlignment="Center" MaxWidth="780" Margin="32,0,32,60">
                     <TextBlock Text="What should the agents work on?" FontSize="26" FontWeight="SemiBold"
                                HorizontalAlignment="Center" Margin="0,0,0,22" />
+                    <TextBlock Style="{StaticResource Hint}" HorizontalAlignment="Center" Margin="0,-14,0,16" TextWrapping="Wrap"
+                               Text="Rerun in this session: its previous runs and transcript are deleted when you start."
+                               Visibility="{Binding IsRerun, Converter={StaticResource BoolToVisibility}}" />
 
                     <Border CornerRadius="22" BorderThickness="1" Padding="18,10,10,10">
                         <Border.Style>
@@ -544,7 +549,7 @@
                                 <Setter Property="Margin" Value="4" />
                             </Style>
                         </WrapPanel.Resources>
-                        <Border Style="{StaticResource Chip}">
+                        <Border Style="{StaticResource Chip}" Visibility="{Binding IsRerun, Converter={StaticResource InverseBoolToVisibility}}">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="📁" VerticalAlignment="Center" Margin="0,0,6,0" />
                                 <Button Content="{Binding FolderDisplay}" Command="{Binding BrowseFolderCommand}" MaxWidth="360"
@@ -552,7 +557,7 @@
                                         ToolTip="{Binding WorkingDirectory}" AutomationProperties.Name="Working directory" />
                             </StackPanel>
                         </Border>
-                        <Border Style="{StaticResource Chip}">
+                        <Border Style="{StaticResource Chip}" Visibility="{Binding IsRerun, Converter={StaticResource InverseBoolToVisibility}}">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="Orchestration" Foreground="{DynamicResource HintForeground}" VerticalAlignment="Center" Margin="0,0,6,0" />
                                 <ComboBox ItemsSource="{Binding Graphs}" SelectedItem="{Binding SelectedGraph}"
