@@ -41,6 +41,53 @@ public class ToolsAndStoresTests
     }
 
     [Fact]
+    public void EditFile_matches_LF_text_against_CRLF_file_and_keeps_CRLF()
+    {
+        var dir = Directory.CreateTempSubdirectory("ao-edit").FullName;
+        try
+        {
+            var box = new AgentToolbox(dir);
+            var path = Path.Combine(dir, "todo.md");
+            File.WriteAllText(path, "1. one\r\n2. two\r\n3. three\r\n");
+            Assert.StartsWith("Edited", box.EditFile("todo.md", "1. one\n2. two", "1. ONE\n2. TWO"));
+            Assert.Equal("1. ONE\r\n2. TWO\r\n3. three\r\n", File.ReadAllText(path));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void EditFile_preserves_UTF8_BOM()
+    {
+        var dir = Directory.CreateTempSubdirectory("ao-edit").FullName;
+        try
+        {
+            var box = new AgentToolbox(dir);
+            var path = Path.Combine(dir, "bom.txt");
+            File.WriteAllBytes(path, [.. new byte[] { 0xEF, 0xBB, 0xBF }, .. "hello world"u8]);
+            Assert.StartsWith("Edited", box.EditFile("bom.txt", "hello", "bye"));
+            var bytes = File.ReadAllBytes(path);
+            Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);
+            Assert.Equal("bye world", System.Text.Encoding.UTF8.GetString(bytes[3..]));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void EditFile_not_found_reports_closest_line()
+    {
+        var dir = Directory.CreateTempSubdirectory("ao-edit").FullName;
+        try
+        {
+            var box = new AgentToolbox(dir);
+            File.WriteAllText(Path.Combine(dir, "f.txt"), "alpha\r\nbeta gamma\r\n");
+            var result = box.EditFile("f.txt", "beta delta", "x");
+            Assert.StartsWith("Error: old_str not found", result);
+            Assert.Contains("Closest line 2", result);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public void Skill_front_matter_is_parsed()
     {
         var skill = SkillStore.Parse("rev", "---\nname: Reviewer\ndescription: Reviews code\n---\nBe strict.\n");

@@ -77,6 +77,8 @@ public partial class AgentNodeViewModel : ObservableObject
 
     public string Id => Model.Id;
 
+    public bool IsPrimaryHook => Model.IsPrimaryHook;
+
     public string Name
     {
         get => Model.Name;

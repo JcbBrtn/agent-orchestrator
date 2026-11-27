@@ -85,6 +85,9 @@ public class AgentDefinition
 
     /// <summary>Max messages kept in this agent's loop memory (oldest dropped first); 0 or less means no cap.</summary>
     public int MemoryMaxMessages { get; set; } = 40;
+
+    /// <summary>Entry point of an imported orchestration; marked when merged into another graph.</summary>
+    public bool IsPrimaryHook { get; set; }
     public double X { get; set; }
     public double Y { get; set; }
 }

@@ -27,7 +27,7 @@ public class AgentToolbox(string workingDirectory, HttpClient? http = null)
         {
             (ToolNames.ReadFile, ReadFile, "Read a text file. Optionally restrict to a 1-based inclusive line range."),
             (ToolNames.CreateFile, CreateFile, "Create a new file (or overwrite if overwrite=true) with the given content. Parent directories are created."),
-            (ToolNames.EditFile, EditFile, "Replace an exact string in a file. old_str must match exactly once unless replace_all=true."),
+            (ToolNames.EditFile, EditFile, "Replace an exact string in a file. old_str must match exactly once unless replace_all=true. Line endings (CRLF/LF) are matched automatically."),
             (ToolNames.ListDirectory, ListDirectory, "List files and folders in a directory (non-recursive unless recursive=true)."),
             (ToolNames.SearchFiles, SearchFiles, "Search file contents with a regular expression under a directory. Returns path:line: text matches."),
             (ToolNames.WebRequest, WebRequest, "Make an HTTP request. Returns status code and body (HTML converted to text when as_text=true)."),
@@ -105,15 +105,65 @@ public class AgentToolbox(string workingDirectory, HttpClient? http = null)
             return $"Error: file not found: {full}";
         if (string.IsNullOrEmpty(old_str))
             return "Error: old_str must not be empty.";
-        var text = File.ReadAllText(full);
-        var count = CountOccurrences(text, old_str);
+        var raw = File.ReadAllBytes(full);
+        using var reader = new StreamReader(new MemoryStream(raw), detectEncodingFromByteOrderMarks: true);
+        var text = reader.ReadToEnd();
+        var encoding = reader.CurrentEncoding;
+
+        var fileEol = text.Contains("\r\n") ? "\r\n" : "\n";
+        var match = old_str;
+        var replacement = new_str;
+        var count = CountOccurrences(text, match);
         if (count == 0)
-            return "Error: old_str not found in file.";
+        {
+            match = ToEol(old_str, fileEol);
+            replacement = ToEol(new_str, fileEol);
+            count = CountOccurrences(text, match);
+        }
+        if (count == 0)
+            return NotFoundMessage(text, old_str);
         if (count > 1 && !replace_all)
             return $"Error: old_str matches {count} times; add more context or set replace_all=true.";
-        File.WriteAllText(full, text.Replace(old_str, new_str, StringComparison.Ordinal));
+
+        var updated = encoding.GetBytes(text.Replace(match, replacement, StringComparison.Ordinal));
+        var preamble = encoding.GetPreamble();
+        if (preamble.Length > 0 && raw.AsSpan().StartsWith(preamble))
+            updated = [.. preamble, .. updated];
+        File.WriteAllBytes(full, updated);
         return $"Edited {full} ({count} replacement(s)).";
     }
+
+    private static string ToEol(string value, string eol) =>
+        value.Replace("\r\n", "\n").Replace("\n", eol);
+
+    private static string NotFoundMessage(string text, string oldStr)
+    {
+        var target = oldStr.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) ?? "";
+        var lines = text.Split('\n');
+        int best = -1, bestScore = 0;
+        for (var i = 0; i < lines.Length && target.Length > 0; i++)
+        {
+            var line = lines[i].Trim();
+            var score = line.Contains(target, StringComparison.Ordinal) ? target.Length : CommonPrefixLength(line, target);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = i;
+            }
+        }
+        var hint = best < 0 ? "" : $" Closest line {best + 1}: {Truncate(lines[best].Trim(), 200)}";
+        return $"Error: old_str not found in file.{hint} Match indentation and punctuation exactly.";
+    }
+
+    private static int CommonPrefixLength(string a, string b)
+    {
+        var n = 0;
+        while (n < a.Length && n < b.Length && a[n] == b[n]) n++;
+        return n;
+    }
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..max] + "…";
 
     public string ListDirectory(
         [Description("Directory path (absolute or relative). Defaults to the working directory.")] string? path = null,

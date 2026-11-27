@@ -165,6 +165,7 @@
                 <Button Content="Save as…" Command="{Binding SaveAsCommand}" Style="{StaticResource ToolbarButton}" />
                 <Separator />
                 <Button Content="＋ Agent" Command="{Binding AddAgentCommand}" Style="{StaticResource ToolbarButton}" />
+<Button Content="＋ Orchestration" Command="{Binding AddOrchestrationCommand}" Style="{StaticResource ToolbarButton}" />
                 <Button Content="Duplicate" Command="{Binding DuplicateSelectedCommand}" Style="{StaticResource ToolbarButton}" />
                 <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" Style="{StaticResource ToolbarButton}" />
                 <Separator />
@@ -351,6 +352,11 @@
                                         <Setter Property="Foreground" Value="{DynamicResource NodeForeground}" />
                                         <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}" />
                                         <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsPrimaryHook}" Value="True">
+                                                <Setter Property="BorderBrush" Value="Gold" />
+                                                <Setter Property="BorderThickness" Value="2" />
+                                                <Setter Property="ToolTip" Value="Primary hook (entry point of an imported orchestration)" />
+                                            </DataTrigger>
                                             <DataTrigger Binding="{Binding RunState}" Value="Running">
                                                 <Setter Property="HeaderBrush" Value="DodgerBlue" />
                                             </DataTrigger>

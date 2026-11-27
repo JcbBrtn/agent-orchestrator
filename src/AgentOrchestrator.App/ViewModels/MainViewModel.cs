@@ -314,6 +314,51 @@ public partial class MainViewModel : ObservableObject
         SelectedNode = node;
     }
 
+    [RelayCommand(CanExecute = nameof(CanEdit))]
+    private void AddOrchestration()
+    {
+        var dialog = new OrchestrationSelectorDialog(Orchestrations) { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true || dialog.SelectedGraph is null || dialog.PrimaryHookAgentId is null)
+            return;
+
+        double anchorX, anchorY;
+        if (SelectedNode is not null)
+        {
+            anchorX = SelectedNode.Location.X + 320;
+            anchorY = SelectedNode.Location.Y;
+        }
+        else if (Nodes.Count > 0)
+        {
+            anchorX = Nodes.Max(n => n.Location.X) + 320;
+            anchorY = Nodes.Min(n => n.Location.Y);
+        }
+        else
+        {
+            anchorX = 100;
+            anchorY = 150;
+        }
+
+        var index = Graph.Agents.Count(a => a.Name.StartsWith("Imported_", StringComparison.Ordinal)) + 1;
+        var firstNewArrow = Graph.Arrows.Count;
+        var imported = GraphMerger.Merge(Graph, dialog.SelectedGraph, dialog.PrimaryHookAgentId, anchorX, anchorY, index);
+        if (imported.Count == 0)
+        {
+            StatusText = "The selected orchestration has no agents to add.";
+            return;
+        }
+
+        foreach (var agent in Graph.Agents.Where(a => imported.Contains(a.Id)))
+            Nodes.Add(CreateNode(agent));
+        foreach (var arrow in Graph.Arrows.Skip(firstNewArrow))
+        {
+            var source = Nodes.First(n => n.Id == arrow.SourceAgentId);
+            var target = Nodes.First(n => n.Id == arrow.TargetAgentId);
+            Connections.Add(new ArrowViewModel(arrow, source.Output, target.Input));
+        }
+        SelectedNode = Nodes.First(n => n.Id == imported[0]);
+        StatusText = $"Added {imported.Count} agent(s) from {dialog.SelectedOrchestration?.Name}; primary hook marked.";
+    }
+
     public void Connect(ConnectorViewModel a, ConnectorViewModel b)
     {
         if (IsRunning || a.IsInput == b.IsInput) return;
@@ -563,6 +608,7 @@ public partial class MainViewModel : ObservableObject
         NewGraphCommand.NotifyCanExecuteChanged();
         OpenCommand.NotifyCanExecuteChanged();
         AddAgentCommand.NotifyCanExecuteChanged();
+        AddOrchestrationCommand.NotifyCanExecuteChanged();
         DeleteSelectedCommand.NotifyCanExecuteChanged();
         DuplicateSelectedCommand.NotifyCanExecuteChanged();
         NewSessionCommand.NotifyCanExecuteChanged();
