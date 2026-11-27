@@ -52,6 +52,58 @@ public class GraphRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task Loop_memory_replays_only_the_agents_own_messages_on_a_loop_back()
+    {
+        var a = Agent("A");
+        a.KeepLoopMemory = true;
+        var graph = new GraphDefinition { Agents = [a, Agent("B")], Arrows = [Arrow("A", "B"), Arrow("B", "A", prompt: "from-B", max: 1)] };
+        var n = 0;
+        _factory.Responders["A"] = _ => FakeChatClient.Text($"a{++n}");
+        _factory.Responders["B"] = _ => FakeChatClient.Text("B-SECRET");
+
+        await Run(graph, "A");
+
+        var second = _factory.Calls["A"][1];
+        Assert.Equal(4, second.Count);
+        Assert.Equal(ChatRole.System, second[0].Role);
+        Assert.Equal("the task", second[1].Text);
+        Assert.Equal("a1", second[2].Text);
+        Assert.Equal("from-B", second[3].Text);
+        Assert.DoesNotContain(second, m => m.Text.Contains("B-SECRET"));
+    }
+
+    [Fact]
+    public async Task Loop_without_memory_flag_starts_fresh_each_pass()
+    {
+        var graph = new GraphDefinition { Agents = [Agent("A"), Agent("B")], Arrows = [Arrow("A", "B"), Arrow("B", "A", prompt: "from-B", max: 1)] };
+        _factory.Responders["A"] = _ => FakeChatClient.Text("a");
+        _factory.Responders["B"] = _ => FakeChatClient.Text("b");
+
+        await Run(graph, "A");
+
+        var second = _factory.Calls["A"][1];
+        Assert.Equal(2, second.Count);
+        Assert.Equal("from-B", second[1].Text);
+    }
+
+    [Fact]
+    public async Task Loop_memory_drops_oldest_messages_beyond_the_cap()
+    {
+        var a = Agent("A");
+        a.KeepLoopMemory = true;
+        a.MemoryMaxMessages = 2;
+        var graph = new GraphDefinition { Agents = [a, Agent("B")], Arrows = [Arrow("A", "B"), Arrow("B", "A", prompt: "from-B", max: 2)] };
+        var n = 0;
+        _factory.Responders["A"] = _ => FakeChatClient.Text($"a{++n}");
+        _factory.Responders["B"] = _ => FakeChatClient.Text("b");
+
+        await Run(graph, "A");
+
+        var third = _factory.Calls["A"][2].Skip(1).Select(m => m.Text).ToList();
+        Assert.Equal(["from-B", "a2", "from-B"], third);
+    }
+
+    [Fact]
     public async Task Ollama_system_prompt_lists_enabled_tools()
     {
         var agent = Agent("A");
@@ -123,6 +175,7 @@ public class GraphRunnerTests : IDisposable
         Assert.Equal(RunStatus.Completed, result.Status);
         Assert.Equal(3, _factory.CallCount("coder"));
         Assert.Contains(_events, e => e.Kind == RunEventKind.Warning && e.Text!.Contains("max traversals"));
+        Assert.Contains("[Stopped: arrow 'rework' reached max traversals (2)]", Assert.Single(result.FinalOutputs).Output);
     }
 
     [Fact]

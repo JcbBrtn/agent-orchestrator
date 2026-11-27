@@ -47,6 +47,7 @@ Drag from an agent's **out** connector to another agent's **in** connector. Sele
 - **Mode**
   - `Template`: the target starts a fresh conversation built from the prompt template.
   - `Handoff`: the target continues the source's conversation, with the arrow's text appended as added context.
+- **Loops**: by default a loop back to an agent starts that agent fresh. Turn on **Keep loop memory** on an agent to have it remember its own earlier messages in the run (capped by **Max remembered messages**, default 40). Each agent's memory is separate; another agent's messages are never added to it. Activations of such an agent run one at a time.
 - **Placeholders**:
   - `{{output}}`: the source's final answer
   - `{{input}}`: the source's input

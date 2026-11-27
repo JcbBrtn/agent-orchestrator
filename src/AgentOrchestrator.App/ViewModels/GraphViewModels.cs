@@ -118,6 +118,18 @@ public partial class AgentNodeViewModel : ObservableObject
         set => SetProperty(TemperatureText, value, Model, (m, v) => m.Temperature = float.TryParse(v, out var f) ? f : null);
     }
 
+    public string TopPText
+    {
+        get => Model.TopP?.ToString() ?? "";
+        set => SetProperty(TopPText, value, Model, (m, v) => m.TopP = float.TryParse(v, out var f) ? f : null);
+    }
+
+    public string TopKText
+    {
+        get => Model.TopK?.ToString() ?? "";
+        set => SetProperty(TopKText, value, Model, (m, v) => m.TopK = int.TryParse(v, out var i) ? i : null);
+    }
+
     public ApprovalMode ApprovalMode
     {
         get => Model.ApprovalMode;
@@ -134,6 +146,18 @@ public partial class AgentNodeViewModel : ObservableObject
     {
         get => Model.MaxToolIterations;
         set => SetProperty(Model.MaxToolIterations, value, Model, (m, v) => m.MaxToolIterations = v);
+    }
+
+    public bool KeepLoopMemory
+    {
+        get => Model.KeepLoopMemory;
+        set => SetProperty(Model.KeepLoopMemory, value, Model, (m, v) => m.KeepLoopMemory = v);
+    }
+
+    public int MemoryMaxMessages
+    {
+        get => Model.MemoryMaxMessages;
+        set => SetProperty(Model.MemoryMaxMessages, value, Model, (m, v) => m.MemoryMaxMessages = v);
     }
 
     public string Subtitle
@@ -352,3 +376,4 @@ public partial class PendingConnectionViewModel(MainViewModel editor) : Observab
         Source = null;
     }
 }
+

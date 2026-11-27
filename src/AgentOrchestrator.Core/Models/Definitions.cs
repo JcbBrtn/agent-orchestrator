@@ -72,11 +72,19 @@ public class AgentDefinition
     public string ModelId { get; set; } = "";
     public string SystemPrompt { get; set; } = "You are a helpful assistant.";
     public float? Temperature { get; set; }
+    public float? TopP { get; set; }
+    public int? TopK { get; set; }
     public List<string> EnabledTools { get; set; } = [ToolNames.ReadFile, ToolNames.ListDirectory, ToolNames.SearchFiles, ToolNames.AskUser];
     public List<string> SkillIds { get; set; } = [];
     public ApprovalMode ApprovalMode { get; set; } = ApprovalMode.AskForRisky;
     public JoinMode JoinMode { get; set; } = JoinMode.Any;
     public int MaxToolIterations { get; set; } = 25;
+
+    /// <summary>When on, this agent's own earlier activations in the same run are replayed on its next activation.</summary>
+    public bool KeepLoopMemory { get; set; }
+
+    /// <summary>Max messages kept in this agent's loop memory (oldest dropped first); 0 or less means no cap.</summary>
+    public int MemoryMaxMessages { get; set; } = 40;
     public double X { get; set; }
     public double Y { get; set; }
 }
@@ -154,6 +162,8 @@ public class ProviderConfig
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "";
     public ProviderKind Kind { get; set; }
+    public bool SupportsTopP { get; set; } = true;
+    public bool SupportsTopK { get; set; } = true;
     public string Endpoint { get; set; } = "";
 
     /// <summary>Key into the secret store; null/empty for providers that need no key.</summary>
@@ -168,7 +178,7 @@ public class ProviderConfig
         _ => "http://localhost:8080/v1",
     };
 
-    public static ProviderConfig CreateCopilot() => new() { Id = "copilot", Name = "GitHub Copilot", Kind = ProviderKind.GitHubCopilot };
+    public static ProviderConfig CreateCopilot() => new() { Id = "copilot", Name = "GitHub Copilot", Kind = ProviderKind.GitHubCopilot, SupportsTopP = false, SupportsTopK = false };
 }
 
 public class AppSettings
@@ -189,8 +199,8 @@ public class AppSettings
         Providers =
         [
             ProviderConfig.CreateCopilot(),
-            new() { Id = "ollama", Name = "Ollama (local)", Kind = ProviderKind.Ollama, Endpoint = ProviderConfig.DefaultEndpoint(ProviderKind.Ollama) },
-            new() { Id = "lmstudio", Name = "LM Studio (local)", Kind = ProviderKind.LMStudio, Endpoint = ProviderConfig.DefaultEndpoint(ProviderKind.LMStudio) },
+            new() { Id = "ollama", Name = "Ollama (local)", Kind = ProviderKind.Ollama, Endpoint = ProviderConfig.DefaultEndpoint(ProviderKind.Ollama), SupportsTopP = true, SupportsTopK = true },
+            new() { Id = "lmstudio", Name = "LM Studio (local)", Kind = ProviderKind.LMStudio, Endpoint = ProviderConfig.DefaultEndpoint(ProviderKind.LMStudio), SupportsTopP = true, SupportsTopK = true },
         ],
     };
 }

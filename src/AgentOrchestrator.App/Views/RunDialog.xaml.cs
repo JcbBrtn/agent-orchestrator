@@ -10,6 +10,8 @@ public partial class RunDialog : Window
     public RunDialog(IEnumerable<AgentNodeViewModel> agents, AgentNodeViewModel defaultEntry, string? workingDirectory, bool lockWorkingDirectory = false)
     {
         InitializeComponent();
+        DataContext = new RunDialogViewModel(agents, defaultEntry, workingDirectory, lockWorkingDirectory);
+
         if (lockWorkingDirectory)
         {
             WorkDirLabel.Text = "Working directory (from the session; use Edit session to change)";
@@ -21,9 +23,14 @@ public partial class RunDialog : Window
             Title = "Run graph — starts a new session";
             WorkDirLabel.Text = "Working directory for the new session (default for relative paths and PowerShell)";
         }
+
         EntryCombo.ItemsSource = agents.ToList();
         EntryCombo.SelectedItem = defaultEntry;
-        WorkDirBox.Text = workingDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (DataContext is RunDialogViewModel vm)
+        {
+            WorkDirBox.Text = vm.WorkingDirectory ?? "";
+        }
+        
         Loaded += (_, _) => TaskBox.Focus();
     }
 

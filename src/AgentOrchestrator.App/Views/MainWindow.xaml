@@ -43,6 +43,14 @@
                 <TextBlock Text="Temperature (blank = model default)" Style="{StaticResource FieldLabel}" />
                 <TextBox Text="{Binding TemperatureText, UpdateSourceTrigger=LostFocus}" Width="80" HorizontalAlignment="Left" />
 
+                <TextBlock Text="Top P (blank = model default)" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding TopPText, UpdateSourceTrigger=LostFocus}" Width="80" HorizontalAlignment="Left" />
+
+                <TextBlock Text="Top K (blank = model default)" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding TopKText, UpdateSourceTrigger=LostFocus}" Width="80" HorizontalAlignment="Left" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Top P and Top K are skipped for providers that don't support them (see the provider settings). Copilot ignores them." />
+
                 <TextBlock Text="System prompt" Style="{StaticResource FieldLabel}" />
                 <TextBox Style="{StaticResource MultiLine}" Height="160"
                          Text="{Binding SystemPrompt, UpdateSourceTrigger=PropertyChanged}" />
@@ -81,6 +89,13 @@
 
                 <TextBlock Text="Max tool iterations per activation" Style="{StaticResource FieldLabel}" />
                 <TextBox Text="{Binding MaxToolIterations}" Width="80" HorizontalAlignment="Left" />
+
+                <CheckBox IsChecked="{Binding KeepLoopMemory}" Content="Keep loop memory" Margin="0,12,0,0" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="On a loop back to this agent, it remembers its own earlier messages in this run. Other agents' messages are never added." />
+                <TextBlock Text="Max remembered messages (0 = no cap)" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding MemoryMaxMessages}" Width="80" HorizontalAlignment="Left" />
+
             </StackPanel>
         </DataTemplate>
 

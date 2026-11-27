@@ -27,6 +27,9 @@ public class RunContext
     public IUserInputService UserInput { get; init; } = new NoUserInputService();
     public required Func<string, SkillDefinition?> SkillLookup { get; init; }
 
+    /// <summary>Per-agent loop memory (agent id → that agent's own messages), kept for this run only.</summary>
+    public ConcurrentDictionary<string, List<ChatMessage>> LoopMemory { get; } = new();
+
     /// <summary>Keys "agentId|toolName" approved for the rest of the run.</summary>
     public ConcurrentDictionary<string, bool> ApprovedForRun { get; } = new();
 }
@@ -35,7 +38,7 @@ public class AgentExecutor(RunContext run)
 {
     public async Task<AgentResult> ExecuteAsync(
         AgentDefinition agent, string activationId, IReadOnlyList<AgentInput> inputs, IChatClient client, CancellationToken ct,
-        bool listToolsInPrompt = false)
+        bool listToolsInPrompt = false, bool supportsTopP = true, bool supportsTopK = true)
     {
         var choiceArrows = run.Graph.Outgoing(agent.Id).Where(a => a.Condition.Type == ConditionType.AgentChoice).ToList();
         var choices = new List<RouteChoice>();
@@ -46,7 +49,14 @@ public class AgentExecutor(RunContext run)
         if (agent.EnabledTools.Contains(ToolNames.AskUser, StringComparer.OrdinalIgnoreCase))
             functions.Add(CreateAskUserTool(agent, activationId));
 
+        // "own" holds only this agent's messages (its remembered loop history, its input, its replies) and is the only
+        // thing stored as loop memory; handoff history from upstream agents is sent to the model but never stored here.
+        var own = new List<ChatMessage>();
+        if (agent.KeepLoopMemory && run.LoopMemory.TryGetValue(agent.Id, out var remembered))
+            own.AddRange(remembered);
+
         var messages = new List<ChatMessage> { new(ChatRole.System, BuildSystemPrompt(agent, choiceArrows, functions, listToolsInPrompt)) };
+        messages.AddRange(own);
         var handoff = inputs.FirstOrDefault(i => i.HandoffHistory is { Count: > 0 })?.HandoffHistory;
         if (handoff is not null)
             messages.AddRange(handoff.Where(m => m.Role != ChatRole.System));
@@ -54,11 +64,18 @@ public class AgentExecutor(RunContext run)
         var inputText = inputs.Count == 1
             ? inputs[0].Message
             : string.Join("\n\n", inputs.Select(i => $"## From {i.SourceAgentName}\n{i.Message}"));
-        messages.Add(new ChatMessage(ChatRole.User, inputText));
+        var inputMessage = new ChatMessage(ChatRole.User, inputText);
+        messages.Add(inputMessage);
+        own.Add(inputMessage);
 
         var byName = functions.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
 
-        var options = new ChatOptions { Temperature = agent.Temperature };
+        var options = new ChatOptions
+        {
+            Temperature = agent.Temperature,
+            TopP = supportsTopP ? agent.TopP : null,
+            TopK = supportsTopK ? agent.TopK : null,
+        };
         if (functions.Count > 0)
         {
             options.Tools = [.. functions];
@@ -88,6 +105,7 @@ public class AgentExecutor(RunContext run)
 
             var response = updates.ToChatResponse();
             messages.AddRange(response.Messages);
+            own.AddRange(response.Messages);
             if (!string.IsNullOrWhiteSpace(response.Text))
             {
                 output = response.Text;
@@ -101,11 +119,26 @@ public class AgentExecutor(RunContext run)
             foreach (var call in calls)
             {
                 var result = await InvokeToolAsync(agent, activationId, call, byName, ct);
-                messages.Add(new ChatMessage(ChatRole.Tool, [new FunctionResultContent(call.CallId, result)]));
+                var toolMessage = new ChatMessage(ChatRole.Tool, [new FunctionResultContent(call.CallId, result)]);
+                messages.Add(toolMessage);
+                own.Add(toolMessage);
             }
         }
 
+        if (agent.KeepLoopMemory)
+            run.LoopMemory[agent.Id] = TrimMemory(own, agent.MemoryMaxMessages);
+
         return new AgentResult(output, inputText, messages.Skip(1).ToList(), choices);
+    }
+
+    /// <summary>Drops the oldest messages beyond the cap, then any leading tool results whose function call was dropped.</summary>
+    private static List<ChatMessage> TrimMemory(List<ChatMessage> memory, int maxMessages)
+    {
+        if (maxMessages > 0 && memory.Count > maxMessages)
+            memory.RemoveRange(0, memory.Count - maxMessages);
+        while (memory.Count > 0 && memory[0].Role == ChatRole.Tool)
+            memory.RemoveAt(0);
+        return memory;
     }
 
     private async Task<string> InvokeToolAsync(

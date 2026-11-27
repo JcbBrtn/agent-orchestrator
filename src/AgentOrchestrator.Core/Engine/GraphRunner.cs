@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using AgentOrchestrator.Core.Models;
 using AgentOrchestrator.Core.Providers;
 using AgentOrchestrator.Core.Tools;
@@ -61,12 +62,14 @@ public class GraphRunner(GraphRunnerOptions options)
             SkillLookup = options.SkillLookup,
         };
         var executor = new AgentExecutor(context);
+        var agentGates = new ConcurrentDictionary<string, SemaphoreSlim>();
 
         var queue = new Queue<Activation>();
         var running = new Dictionary<Task<AgentResult>, Activation>();
         var joinBuffers = new Dictionary<string, List<AgentInput>>();
         var traversals = new Dictionary<string, int>();
         var finalOutputs = new List<RunOutput>();
+        var capBlocked = new List<string>();
         var steps = 0;
         var activationCounter = 0;
         string? error = null;
@@ -125,8 +128,14 @@ public class GraphRunner(GraphRunnerOptions options)
                 }
 
                 Emit(new RunEvent { Kind = RunEventKind.NodeCompleted, RunId = runId, ActivationId = completed.Id, AgentId = completed.Agent.Id, AgentName = completed.Agent.Name, Text = result.Output });
+                capBlocked.Clear();
                 if (!Route(completed, result))
-                    finalOutputs.Add(new RunOutput(completed.Agent.Id, completed.Agent.Name, result.Output));
+                {
+                    var output = capBlocked.Count == 0
+                        ? result.Output
+                        : $"{result.Output}\n\n[Stopped: {string.Join("; ", capBlocked)}]";
+                    finalOutputs.Add(new RunOutput(completed.Agent.Id, completed.Agent.Name, output));
+                }
                 FlushJoins();
             }
         }
@@ -171,11 +180,22 @@ public class GraphRunner(GraphRunnerOptions options)
             });
             return Task.Run(async () =>
             {
-                var provider = options.ProviderLookup(activation.Agent.ProviderId)
-                    ?? throw new InvalidOperationException($"Provider '{activation.Agent.ProviderId}' is not configured.");
-                using var client = options.ChatClientFactory.Create(provider, activation.Agent.ModelId);
-                return await executor.ExecuteAsync(activation.Agent, activation.Id, activation.Inputs, client, ct,
-                    listToolsInPrompt: provider.Kind == ProviderKind.Ollama);
+                // Agents with loop memory run one activation at a time so their memory is never read mid-update.
+                var gate = activation.Agent.KeepLoopMemory ? agentGates.GetOrAdd(activation.Agent.Id, _ => new SemaphoreSlim(1, 1)) : null;
+                if (gate is not null) await gate.WaitAsync(ct);
+                try
+                {
+                    var provider = options.ProviderLookup(activation.Agent.ProviderId)
+                        ?? throw new InvalidOperationException($"Provider '{activation.Agent.ProviderId}' is not configured.");
+                    using var client = options.ChatClientFactory.Create(provider, activation.Agent.ModelId);
+                    return await executor.ExecuteAsync(activation.Agent, activation.Id, activation.Inputs, client, ct,
+                        listToolsInPrompt: provider.Kind == ProviderKind.Ollama,
+                        supportsTopP: provider.SupportsTopP, supportsTopK: provider.SupportsTopK);
+                }
+                finally
+                {
+                    gate?.Release();
+                }
             }, ct);
         }
 
@@ -197,6 +217,7 @@ public class GraphRunner(GraphRunnerOptions options)
                 if (arrow.MaxTraversals > 0 && count >= arrow.MaxTraversals)
                 {
                     Emit(new RunEvent { Kind = RunEventKind.Warning, RunId = runId, ArrowId = arrow.Id, AgentId = from.Agent.Id, AgentName = from.Agent.Name, Text = $"Arrow '{arrow.Name}' reached max traversals ({arrow.MaxTraversals}); not firing." });
+                    capBlocked.Add($"arrow '{arrow.Name}' reached max traversals ({arrow.MaxTraversals})");
                     continue;
                 }
                 traversals[arrow.Id] = count + 1;
